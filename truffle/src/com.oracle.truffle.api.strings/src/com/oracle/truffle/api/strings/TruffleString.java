@@ -139,11 +139,15 @@ public final class TruffleString extends AbstractTruffleString {
     private volatile TruffleString next;
 
     private TruffleString(Object data, int offset, int length, int stride, int encoding, int codePointLength, int codeRange) {
-        this(data, offset, length, stride, encoding, codePointLength, codeRange, true);
+        this(data, offset, length, stride, encoding, codePointLength, codeRange, true, null);
     }
 
     private TruffleString(Object data, int offset, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead) {
-        super(data, offset, length, stride, encoding, isCacheHead ? FLAG_CACHE_HEAD : 0);
+        this(data, offset, length, stride, encoding, codePointLength, codeRange, isCacheHead, null);
+    }
+
+    private TruffleString(Object data, int offset, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead, Object[] taint) {
+        super(data, offset, length, stride, encoding, isCacheHead ? FLAG_CACHE_HEAD : 0, taint);
         assert isByte(codeRange);
         assert codePointLength >= 0;
         assert TSCodeRange.isCodeRange(codeRange);
@@ -161,6 +165,10 @@ public final class TruffleString extends AbstractTruffleString {
         return createFromByteArray(bytes, length, stride, encoding, codePointLength, codeRange, true);
     }
 
+    static TruffleString createFromByteArray(byte[] bytes, int length, int stride, int encoding, int codePointLength, int codeRange, Object[] taint) {
+        return createFromArray(bytes, 0, length, stride, encoding, codePointLength, codeRange, true, taint);
+    }
+
     static TruffleString createFromByteArray(byte[] bytes, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead) {
         return createFromArray(bytes, 0, length, stride, encoding, codePointLength, codeRange, isCacheHead);
     }
@@ -170,11 +178,15 @@ public final class TruffleString extends AbstractTruffleString {
     }
 
     static TruffleString createFromArray(Object bytes, int offset, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead) {
+        return createFromArray(bytes, offset, length, stride, encoding, codePointLength, codeRange, isCacheHead, null);
+    }
+
+    static TruffleString createFromArray(Object bytes, int offset, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead, Object[] taint) {
         assert bytes instanceof byte[] || isInlinedJavaString(bytes) || bytes instanceof NativePointer;
         assert offset >= 0;
         assert bytes instanceof NativePointer || offset + ((long) length << stride) <= TStringOps.byteLength(bytes);
         assert attrsAreCorrect(bytes, encoding, offset, length, codePointLength, codeRange, stride);
-        return new TruffleString(bytes, offset, length, stride, encoding, codePointLength, codeRange, isCacheHead);
+        return new TruffleString(bytes, offset, length, stride, encoding, codePointLength, codeRange, isCacheHead, taint);
     }
 
     static TruffleString createConstant(byte[] bytes, int length, int stride, int encoding, int codePointLength, int codeRange) {

@@ -105,20 +105,35 @@ public abstract class AbstractTruffleString {
      * hashCode value of zero always means that the hash is not calculated yet.
      */
     int hashCode = 0;
+    /**
+     * This array stores the taint information of the {@link TruffleString}s. Taint information is
+     * stored on a per codepoint basis, i.e. for every {@link char} is exactly 1 taint {@link Object}.
+     * <p>
+     * Will be {@code null} for untainted {@link AbstractTruffleString}s.
+     */
+    protected final Object[] taint;
 
-    AbstractTruffleString(Object data, int offset, int length, int stride, int encoding, int flags) {
+    // TODO provide a global option to enable / disable taint tracking
+
+    AbstractTruffleString(Object data, int offset, int length, int stride, int encoding, int flags, Object[] taint) {
         validateData(data, offset, length, stride);
         assert 0 <= encoding && encoding <= Byte.MAX_VALUE;
         assert isByte(stride);
         assert isByte(encoding);
         assert isByte(flags);
         assert isSupportedEncoding(encoding) || TStringAccessor.ENGINE.requireLanguageWithAllEncodings(Encoding.get(encoding));
+        assert taint == null || taint.length == length;
         this.data = data;
         this.encoding = (byte) encoding;
         this.offset = offset;
         this.length = length;
         this.stride = (byte) stride;
         this.flags = (byte) flags;
+        this.taint = taint;
+    }
+
+    AbstractTruffleString(Object data, int offset, int length, int stride, int encoding, int flags) {
+        this(data, offset, length, stride, encoding, flags, null);
     }
 
     static boolean isByte(int i) {
@@ -1135,6 +1150,8 @@ public abstract class AbstractTruffleString {
     }
 
     static final class LazyConcat {
+
+        // TODO introduce taint tracking in here
 
         private final TruffleString left;
         private final TruffleString right;
