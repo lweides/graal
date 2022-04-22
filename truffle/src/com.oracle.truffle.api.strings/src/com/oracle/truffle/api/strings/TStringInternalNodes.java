@@ -1027,16 +1027,19 @@ final class TStringInternalNodes {
 
         abstract TruffleString execute(AbstractTruffleString a, AbstractTruffleString b, int encoding, int concatLength, int concatStride, int concatCodeRange);
 
+        // TODO maybe create specializations for tainted / untainted strings
         @Specialization
         static TruffleString concat(AbstractTruffleString a, AbstractTruffleString b, int encoding, int concatLength, int concatStride, int concatCodeRange,
-                        @Cached TruffleString.ToIndexableNode toIndexableNodeA,
-                        @Cached TruffleString.ToIndexableNode toIndexableNodeB,
-                        @Cached GetCodePointLengthNode getCodePointLengthANode,
-                        @Cached GetCodePointLengthNode getCodePointLengthBNode,
-                        @Cached ConcatMaterializeBytesNode materializeBytesNode,
-                        @Cached CalcStringAttributesNode calculateAttributesNode,
-                        @Cached ConditionProfile brokenProfile) {
+                                    @Cached TruffleString.ToIndexableNode toIndexableNodeA,
+                                    @Cached TruffleString.ToIndexableNode toIndexableNodeB,
+                                    @Cached GetCodePointLengthNode getCodePointLengthANode,
+                                    @Cached GetCodePointLengthNode getCodePointLengthBNode,
+                                    @Cached ConcatMaterializeBytesNode materializeBytesNode,
+                                    @Cached CalcStringAttributesNode calculateAttributesNode,
+                                    @Cached ConditionProfile brokenProfile,
+                                    @Cached TSTaintNodes.ConcatTaintNode concatTaintNode) {
             final byte[] bytes = materializeBytesNode.execute(a, toIndexableNodeA.execute(a, a.data()), b, toIndexableNodeB.execute(b, b.data()), encoding, concatLength, concatStride);
+            final Object[] taint = concatTaintNode.execute(a, b);
             final int codeRange;
             final int codePointLength;
             if (brokenProfile.profile(isBrokenMultiByte(concatCodeRange))) {
@@ -1047,7 +1050,7 @@ final class TStringInternalNodes {
                 codePointLength = getCodePointLengthANode.execute(a) + getCodePointLengthBNode.execute(b);
                 codeRange = concatCodeRange;
             }
-            return TruffleString.createFromByteArray(bytes, concatLength, concatStride, encoding, codePointLength, codeRange);
+            return TruffleString.createFromByteArray(bytes, concatLength, concatStride, encoding, codePointLength, codeRange, taint);
         }
     }
 

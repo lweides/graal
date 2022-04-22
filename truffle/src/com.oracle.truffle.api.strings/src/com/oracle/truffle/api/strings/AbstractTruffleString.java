@@ -111,7 +111,7 @@ public abstract class AbstractTruffleString {
      * <p>
      * Will be {@code null} for untainted {@link AbstractTruffleString}s.
      */
-    protected final Object[] taint;
+    protected Object[] taint;
 
     // TODO provide a global option to enable / disable taint tracking
 
