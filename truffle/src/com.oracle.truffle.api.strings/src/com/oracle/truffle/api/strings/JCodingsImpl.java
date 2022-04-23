@@ -332,7 +332,7 @@ final class JCodingsImpl implements JCodings {
         }
         checkArrayRange(buffer, 0, length);
         return fromBufferWithStringCompactionNode.execute(
-                        buffer, 0, length, targetEncoding, length != buffer.length || isSupportedEncoding(targetEncoding), undefinedConversion || a.isMutable());
+                        buffer, 0, length, targetEncoding, length != buffer.length || isSupportedEncoding(targetEncoding), undefinedConversion || a.isMutable(), a.taint);
     }
 
     @TruffleBoundary

@@ -5,6 +5,7 @@ import com.oracle.truffle.api.dsl.GeneratePackagePrivate;
 import com.oracle.truffle.api.dsl.GenerateUncached;
 import com.oracle.truffle.api.dsl.Specialization;
 import com.oracle.truffle.api.nodes.Node;
+import com.oracle.truffle.api.profiles.ConditionProfile;
 
 import java.util.Arrays;
 
@@ -72,6 +73,58 @@ public class TSTaintNodes {
     }
 
     @GenerateUncached
+    public static abstract class CopyTaintNode extends Node {
+
+        CopyTaintNode() {}
+
+        /**
+         * Copies the given {@code taint} array into a new array.
+         * The copy is only a shallow one.
+         */
+        public abstract Object[] execute(Object[] taint);
+
+        @Specialization(guards = "!isArrayTaintedNode.execute(taint)")
+        static Object[] unTaintedCopy(Object[] taint,
+                                      @Cached IsArrayTaintedNode isArrayTaintedNode) {
+            return null;
+        }
+
+        @Specialization(guards = "isArrayTaintedNode.execute(taint)")
+        static Object[] taintedCopy(Object[] taint,
+                                    @Cached IsArrayTaintedNode isArrayTaintedNode) {
+            return Arrays.copyOf(taint, taint.length);
+        }
+
+        static CopyTaintNode getUncached() {
+            return TSTaintNodesFactory.CopyTaintNodeGen.getUncached();
+        }
+    }
+
+    @GenerateUncached
+    public static abstract class IsArrayTaintedNode extends Node {
+
+        IsArrayTaintedNode() {}
+
+        public abstract boolean execute(Object[] taint);
+
+        @Specialization
+        static boolean isTainted(Object[] a) {
+            return a != null && anyNonNull(a);
+        }
+
+        private static boolean anyNonNull(Object[] taint) {
+            for (final Object o : taint) {
+                if (o != null) { return true; }
+            }
+            return false;
+        }
+
+        static IsArrayTaintedNode getUncached() {
+            return TSTaintNodesFactory.IsArrayTaintedNodeGen.getUncached();
+        }
+    }
+
+    @GenerateUncached
     public static abstract class IsTaintedNode extends Node {
 
         IsTaintedNode() {}
@@ -85,19 +138,13 @@ public class TSTaintNodes {
 
         @SuppressWarnings("unused")
         @Specialization
-        static boolean isTainted(AbstractTruffleString a) {
-            return a.taint != null && anyNonNull(a.taint);
+        static boolean isTainted(AbstractTruffleString a,
+                                 @Cached IsArrayTaintedNode isArrayTaintedNode) {
+            return isArrayTaintedNode.execute(a.taint);
         }
 
         static IsTaintedNode getUncached() {
             return TSTaintNodesFactory.IsTaintedNodeGen.getUncached();
-        }
-
-        private static boolean anyNonNull(Object[] taint) {
-            for (final Object o : taint) {
-                if (o != null) { return true; }
-            }
-            return false;
         }
     }
 
@@ -132,8 +179,11 @@ public class TSTaintNodes {
         // TODO should adding taint to a MutableTruffleString produce a new object?
         @SuppressWarnings("unused")
         @Specialization
-        static AbstractTruffleString addTaint(MutableTruffleString a, Object taint) {
-            if (a.taint == null || a.taint.length != a.length()) { a.taint = new Object[a.length()]; }
+        static AbstractTruffleString addTaint(MutableTruffleString a, Object taint,
+                                              @Cached ConditionProfile taintLengthProfile) {
+            if (taintLengthProfile.profile(a.taint == null || a.taint.length != a.length())) {
+                a.taint = new Object[a.length()];
+            }
             Arrays.fill(a.taint, taint);
             return a;
         }
@@ -186,9 +236,9 @@ public class TSTaintNodes {
         @SuppressWarnings("unused")
         @Specialization(guards = "isTaintedNode.execute(a)")
         static TruffleString removeTaintTainted(TruffleString a, int from, int to,
-                                                  @Cached IsTaintedNode isTaintedNode) {
-            final Object[] taintArr = new Object[a.length()];
-            System.arraycopy(a.taint, 0, taintArr, 0, a.taint.length);
+                                                  @Cached IsTaintedNode isTaintedNode,
+                                                  @Cached CopyTaintNode copyTaintNode) {
+            final Object[] taintArr = copyTaintNode.execute(a.taint);
             Arrays.fill(taintArr, from, to, null);
             return TruffleString.createFromArray(
                     a.data(),

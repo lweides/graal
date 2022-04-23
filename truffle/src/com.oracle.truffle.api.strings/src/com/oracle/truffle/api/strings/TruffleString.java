@@ -173,6 +173,10 @@ public final class TruffleString extends AbstractTruffleString {
         return createFromArray(bytes, 0, length, stride, encoding, codePointLength, codeRange, isCacheHead);
     }
 
+    static TruffleString createFromByteArray(byte[] bytes, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead, Object[] taint) {
+        return createFromArray(bytes, 0, length, stride, encoding, codePointLength, codeRange, isCacheHead, taint);
+    }
+
     static TruffleString createFromArray(Object bytes, int offset, int length, int stride, int encoding, int codePointLength, int codeRange) {
         return createFromArray(bytes, offset, length, stride, encoding, codePointLength, codeRange, true);
     }
@@ -1783,7 +1787,7 @@ public final class TruffleString extends AbstractTruffleString {
         static TruffleString fromByteArray(byte[] value, int byteOffset, int byteLength, Encoding enc, boolean copy,
                         @Cached TStringInternalNodes.FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode) {
             checkArrayRange(value, byteOffset, byteLength);
-            return fromBufferWithStringCompactionNode.execute(value, byteOffset, byteLength, enc.id, copy, true);
+            return fromBufferWithStringCompactionNode.execute(value, byteOffset, byteLength, enc.id, copy, true, null);
         }
 
         /**
@@ -2167,7 +2171,8 @@ public final class TruffleString extends AbstractTruffleString {
                         @Cached TStringInternalNodes.FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode) {
             NativePointer pointer = NativePointer.create(this, pointerObject, interopLibrary, byteOffset);
             if (copy) {
-                return fromBufferWithStringCompactionNode.execute(pointer, byteOffset, byteLength, enc.id, true, true);
+                // TODO native taint tracking?
+                return fromBufferWithStringCompactionNode.execute(pointer, byteOffset, byteLength, enc.id, true, true, null);
             }
             return fromNativePointerNode.execute(pointer, byteOffset, byteLength, enc.id, true);
         }
@@ -2236,7 +2241,7 @@ public final class TruffleString extends AbstractTruffleString {
                         @Cached TStringInternalNodes.GetCodeRangeNode getCodeRangeNode,
                         @Cached TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode fromBufferWithStringCompactionNode) {
             a.checkEncoding(expectedEncoding);
-            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a));
+            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a), a.taint);
         }
 
         /**
@@ -2297,7 +2302,7 @@ public final class TruffleString extends AbstractTruffleString {
             a.checkEncoding(expectedEncoding);
             Object data = a.data();
             assert data instanceof byte[] || data instanceof NativePointer;
-            return fromBufferWithStringCompactionNode.execute(data, a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a));
+            return fromBufferWithStringCompactionNode.execute(data, a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a), a.taint);
         }
 
         /**
@@ -4270,7 +4275,7 @@ public final class TruffleString extends AbstractTruffleString {
             }
             int codeRange = getCodeRangeNode.execute(b);
             b.looseCheckEncoding(expectedEncoding, codeRange);
-            return fromBufferWithStringCompactionNode.execute(b.data(), b.offset(), b.length() << b.stride(), expectedEncoding.id, getCodePointLengthNode.execute(b), codeRange);
+            return fromBufferWithStringCompactionNode.execute(b.data(), b.offset(), b.length() << b.stride(), expectedEncoding.id, getCodePointLengthNode.execute(b), codeRange, b.taint);
         }
 
         @SuppressWarnings("unused")
@@ -4298,7 +4303,7 @@ public final class TruffleString extends AbstractTruffleString {
             }
             int codeRange = getCodeRangeNode.execute(a);
             a.looseCheckEncoding(expectedEncoding, codeRange);
-            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), codeRange);
+            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), codeRange, a.taint);
         }
 
         @Specialization(guards = {"!isEmpty(a)", "!isEmpty(b)"})
@@ -4345,7 +4350,7 @@ public final class TruffleString extends AbstractTruffleString {
             return TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode.getUncached().execute(
                             a.data(), a.offset(), a.length() << a.stride(), encoding.id,
                             TStringInternalNodes.GetCodePointLengthNode.getUncached().execute(a),
-                            TStringInternalNodes.GetCodeRangeNode.getUncached().execute(a));
+                            TStringInternalNodes.GetCodeRangeNode.getUncached().execute(a), a.taint);
         }
 
         /**
@@ -5422,7 +5427,7 @@ public final class TruffleString extends AbstractTruffleString {
                 } else {
                     arrayNoCompaction = arrayA;
                 }
-                return fromBufferWithStringCompactionNode.execute(arrayNoCompaction, a.offset(), byteLength, targetEncoding.id, a.isMutable(), true);
+                return fromBufferWithStringCompactionNode.execute(arrayNoCompaction, a.offset(), byteLength, targetEncoding.id, a.isMutable(), true, a.taint);
             } else {
                 assert arrayA instanceof NativePointer;
                 return fromNativePointerNode.execute((NativePointer) arrayA, a.offset(), byteLength, targetEncoding.id, true);
