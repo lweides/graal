@@ -18,7 +18,7 @@ public class TSTaintNodes {
     @GenerateUncached
     public abstract static class ConcatTaintNode extends Node {
 
-        ConcatTaintNode() {}
+        ConcatTaintNode() { }
 
         /**
          * Concatenates the taint of {@code a} and {@code b}, returning the combined taint.
@@ -73,9 +73,9 @@ public class TSTaintNodes {
     }
 
     @GenerateUncached
-    public static abstract class CopyTaintNode extends Node {
+    public abstract static class CopyTaintNode extends Node {
 
-        CopyTaintNode() {}
+        CopyTaintNode() { }
 
         /**
          * Copies the given {@code taint} array into a new array.
@@ -101,21 +101,86 @@ public class TSTaintNodes {
     }
 
     @GenerateUncached
-    public static abstract class IsArrayTaintedNode extends Node {
+    public abstract static class SubTaintNode extends Node {
 
-        IsArrayTaintedNode() {}
+        SubTaintNode() { }
+
+        public abstract Object[] execute(Object[] taint, int from, int to);
+
+        @Specialization(guards = "!isSubArrayTaintedNode.execute(taint, from, to)")
+        static Object[] subTaintUntainted(Object[] taint, int from, int to,
+                                          @Cached IsSubArrayTaintedNode isSubArrayTaintedNode) {
+            return null;
+        }
+
+        @Specialization(guards = "isSubArrayTaintedNode.execute(taint, from, to)")
+        static Object[] subTaintTainted(Object[] taint, int from, int to,
+                                          @Cached IsSubArrayTaintedNode isSubArrayTaintedNode) {
+            return Arrays.copyOfRange(taint, from, to);
+        }
+
+        static SubTaintNode getUncached() {
+            return TSTaintNodesFactory.SubTaintNodeGen.getUncached();
+        }
+    }
+
+    @GenerateUncached
+    public abstract static class IsSubArrayTaintedNode extends Node {
+
+        IsSubArrayTaintedNode() { }
+
+        /**
+         * Checks whether the given array is tainted in the range {@code from - to}.
+         * @param taint taint array
+         * @param from inclusive
+         * @param to exclusive
+         */
+        public abstract boolean execute(Object[] taint, int from, int to);
+
+        @Specialization(guards = "taint != null")
+        static boolean isTaintedNonNull(Object[] taint, int from, int to) {
+            if (taint == null) {
+                return false;
+            }
+//            assert 0 <= from && from <= to && to <= taint.length;
+            // TODO how to handle constraints?
+            return anyNonNull(taint, from, to);
+        }
+
+        @Specialization(guards = "taint == null")
+        static boolean isTaintedNull(Object[] taint, int from, int to) {
+            return false;
+        }
+
+        private static boolean anyNonNull(Object[] taint, int from, int to) {
+            for (int i = from; i < to; i++) {
+                if (taint[i] != null) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static IsSubArrayTaintedNode getUncached() {
+            return TSTaintNodesFactory.IsSubArrayTaintedNodeGen.getUncached();
+        }
+    }
+
+    @GenerateUncached
+    public abstract static class IsArrayTaintedNode extends Node {
+
+        IsArrayTaintedNode() { }
 
         public abstract boolean execute(Object[] taint);
 
-        @Specialization
-        static boolean isTainted(Object[] a) {
-            return a != null && anyNonNull(a);
+        @Specialization(guards = "taint != null")
+        static boolean isTaintedNonNull(Object[] taint,
+                                 @Cached IsSubArrayTaintedNode isSubArrayTaintedNode) {
+            return isSubArrayTaintedNode.execute(taint, 0, taint.length);
         }
 
-        private static boolean anyNonNull(Object[] taint) {
-            for (final Object o : taint) {
-                if (o != null) { return true; }
-            }
+        @Specialization(guards = "taint == null")
+        static boolean isTaintedNull(Object[] taint) {
             return false;
         }
 
@@ -125,9 +190,9 @@ public class TSTaintNodes {
     }
 
     @GenerateUncached
-    public static abstract class IsTaintedNode extends Node {
+    public abstract static class IsTaintedNode extends Node {
 
-        IsTaintedNode() {}
+        IsTaintedNode() { }
 
         /**
          * Checks if the given {@link AbstractTruffleString} is tainted.
@@ -149,9 +214,9 @@ public class TSTaintNodes {
     }
 
     @GenerateUncached
-    public static abstract class AddTaintNode extends Node {
+    public abstract static class AddTaintNode extends Node {
 
-        AddTaintNode() {}
+        AddTaintNode() { }
 
         /**
          * Adds taint to the given {@link AbstractTruffleString}.
@@ -194,9 +259,9 @@ public class TSTaintNodes {
     }
 
     @GenerateUncached
-    public static abstract class GetTaintNode extends Node {
+    public abstract static class GetTaintNode extends Node {
 
-        GetTaintNode() {}
+        GetTaintNode() { }
 
         /**
          * Returns the taint of the given {@link AbstractTruffleString},
@@ -216,9 +281,9 @@ public class TSTaintNodes {
     }
 
     @GenerateUncached
-    public static abstract class RemoveTaintNode extends Node {
+    public abstract static class RemoveTaintNode extends Node {
 
-        RemoveTaintNode() {}
+        RemoveTaintNode() { }
 
         /**
          * Removes the taint from the given {@link AbstractTruffleString} in the given range.
@@ -226,17 +291,17 @@ public class TSTaintNodes {
         public abstract AbstractTruffleString execute(AbstractTruffleString a, int from, int to);
 
         @SuppressWarnings("unused")
-        @Specialization(guards = "!isTaintedNode.execute(a)")
+        @Specialization(guards = "!isSubArrayTaintedNode.execute(a.taint, from, to)")
         static AbstractTruffleString removeTaintUntainted(AbstractTruffleString a, int from, int to,
-                                                  @Cached IsTaintedNode isTaintedNode) {
+                                                  @Cached IsSubArrayTaintedNode isSubArrayTaintedNode) {
             return a;
         }
 
 
         @SuppressWarnings("unused")
-        @Specialization(guards = "isTaintedNode.execute(a)")
+        @Specialization(guards = "isSubArrayTaintedNode.execute(a.taint, from, to)")
         static TruffleString removeTaintTainted(TruffleString a, int from, int to,
-                                                  @Cached IsTaintedNode isTaintedNode,
+                                                  @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
                                                   @Cached CopyTaintNode copyTaintNode) {
             final Object[] taintArr = copyTaintNode.execute(a.taint);
             Arrays.fill(taintArr, from, to, null);
@@ -254,9 +319,9 @@ public class TSTaintNodes {
         }
 
         @SuppressWarnings("unused")
-        @Specialization(guards = "isTaintedNode.execute(a)")
+        @Specialization(guards = "isSubArrayTaintedNode.execute(a.taint, from, to)")
         static MutableTruffleString removeTaintTainted(MutableTruffleString a, int from, int to,
-                                                @Cached IsTaintedNode isTaintedNode) {
+                                                @Cached IsSubArrayTaintedNode isSubArrayTaintedNode) {
             Arrays.fill(a.taint, from, to, null);
             return a;
         }
