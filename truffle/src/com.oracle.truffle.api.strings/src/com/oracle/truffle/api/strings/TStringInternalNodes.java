@@ -158,24 +158,28 @@ final class TStringInternalNodes {
                         @Cached(value = "encoding") int cachedEncoding,
                         @Cached(value = "stride") int cachedStride,
                         @Cached CalcStringAttributesNode calcAttributesNode,
-                        @Cached RawArrayCopyBytesNode arrayCopyNode) {
-            return createString(a, array, offset, length, cachedStride, cachedEncoding, codeRange, calcAttributesNode, arrayCopyNode);
+                        @Cached RawArrayCopyBytesNode arrayCopyNode,
+                        @Cached TSTaintNodes.SubTaintNode subTaintNode) {
+            return createString(a, array, offset, length, cachedStride, cachedEncoding, codeRange, calcAttributesNode, arrayCopyNode, subTaintNode);
         }
 
         @Specialization(replaces = "doCached")
         static TruffleString doUncached(AbstractTruffleString a, Object array, int offset, int length, int stride, int encoding, int codeRange,
                         @Cached CalcStringAttributesNode calcAttributesNode,
-                        @Cached RawArrayCopyBytesNode arrayCopyNode) {
-            return createString(a, array, offset, length, stride, encoding, codeRange, calcAttributesNode, arrayCopyNode);
+                        @Cached RawArrayCopyBytesNode arrayCopyNode,
+                        @Cached TSTaintNodes.SubTaintNode subTaintNode) {
+            return createString(a, array, offset, length, stride, encoding, codeRange, calcAttributesNode, arrayCopyNode, subTaintNode);
         }
 
         private static TruffleString createString(AbstractTruffleString a, Object array, int offset, int length, int stride, int encoding, int codeRange,
-                        CalcStringAttributesNode calcAttributesNode, RawArrayCopyBytesNode arrayCopyNode) {
+                                                  CalcStringAttributesNode calcAttributesNode, RawArrayCopyBytesNode arrayCopyNode, TSTaintNodes.SubTaintNode subTaintNode) {
             long attrs = calcAttributesNode.execute(a, array, offset, length, stride, encoding, codeRange);
             int newStride = Stride.fromCodeRange(StringAttributes.getCodeRange(attrs), encoding);
             byte[] newBytes = new byte[length << newStride];
             arrayCopyNode.execute(array, offset, stride, newBytes, 0, newStride, length);
-            return TruffleString.createFromByteArray(newBytes, length, newStride, encoding, StringAttributes.getCodePointLength(attrs), StringAttributes.getCodeRange(attrs));
+            // TODO not sure about offset + length stuff
+            final Object[] taint = subTaintNode.execute(a.taint, offset, offset + length);
+            return TruffleString.createFromByteArray(newBytes, length, newStride, encoding, StringAttributes.getCodePointLength(attrs), StringAttributes.getCodeRange(attrs), taint);
         }
     }
 
@@ -973,7 +977,8 @@ final class TStringInternalNodes {
         TruffleString createLazySubstring(TruffleString a, Object arrayA, int codeRangeA, int fromIndex, int length, @SuppressWarnings("unused") boolean lazy,
                         @Cached CalcStringAttributesNode calcAttributesNode,
                         @Cached ConditionProfile stride1MustMaterializeProfile,
-                        @Cached ConditionProfile stride2MustMaterializeProfile) {
+                        @Cached ConditionProfile stride2MustMaterializeProfile,
+                        @Cached TSTaintNodes.SubTaintNode subTaintNode) {
             int lazyOffset = a.offset() + (fromIndex << a.stride());
             long attrs = calcAttributesNode.execute(a, arrayA, lazyOffset, length, a.stride(), a.encoding(), codeRangeA);
             int codeRange = StringAttributes.getCodeRange(attrs);
@@ -1019,7 +1024,8 @@ final class TStringInternalNodes {
                 offset = lazyOffset;
                 stride = a.stride();
             }
-            return TruffleString.createFromArray(array, offset, length, stride, a.encoding(), codePointLength, codeRange);
+            final Object[] taint = subTaintNode.execute(a.taint, offset, offset + length);
+            return TruffleString.createFromArray(array, offset, length, stride, a.encoding(), codePointLength, codeRange, true, taint);
         }
     }
 
@@ -1029,7 +1035,6 @@ final class TStringInternalNodes {
 
         abstract TruffleString execute(AbstractTruffleString a, AbstractTruffleString b, int encoding, int concatLength, int concatStride, int concatCodeRange);
 
-        // TODO maybe create specializations for tainted / untainted strings
         @Specialization
         static TruffleString concat(AbstractTruffleString a, AbstractTruffleString b, int encoding, int concatLength, int concatStride, int concatCodeRange,
                                     @Cached TruffleString.ToIndexableNode toIndexableNodeA,
