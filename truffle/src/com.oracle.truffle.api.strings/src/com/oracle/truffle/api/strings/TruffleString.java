@@ -157,6 +157,7 @@ public final class TruffleString extends AbstractTruffleString {
         assert !isUTF16(encoding) || !isValidFixedWidth(codeRange) && !isBrokenFixedWidth(codeRange);
         assert !isUTF32(encoding) || !isValidMultiByte(codeRange) && !isBrokenMultiByte(codeRange);
         assert !isBytes(encoding) || is7Bit(codeRange) || isValidFixedWidth(codeRange);
+        assert taint == null || taint.length == codePointLength;
         this.codePointLength = codePointLength;
         this.codeRange = (byte) codeRange;
     }
@@ -2241,7 +2242,7 @@ public final class TruffleString extends AbstractTruffleString {
                         @Cached TStringInternalNodes.GetCodeRangeNode getCodeRangeNode,
                         @Cached TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode fromBufferWithStringCompactionNode) {
             a.checkEncoding(expectedEncoding);
-            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a), a.taint);
+            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a), a.taint());
         }
 
         /**
@@ -2302,7 +2303,7 @@ public final class TruffleString extends AbstractTruffleString {
             a.checkEncoding(expectedEncoding);
             Object data = a.data();
             assert data instanceof byte[] || data instanceof NativePointer;
-            return fromBufferWithStringCompactionNode.execute(data, a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a), a.taint);
+            return fromBufferWithStringCompactionNode.execute(data, a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a), a.taint());
         }
 
         /**
@@ -4275,7 +4276,7 @@ public final class TruffleString extends AbstractTruffleString {
             }
             int codeRange = getCodeRangeNode.execute(b);
             b.looseCheckEncoding(expectedEncoding, codeRange);
-            return fromBufferWithStringCompactionNode.execute(b.data(), b.offset(), b.length() << b.stride(), expectedEncoding.id, getCodePointLengthNode.execute(b), codeRange, b.taint);
+            return fromBufferWithStringCompactionNode.execute(b.data(), b.offset(), b.length() << b.stride(), expectedEncoding.id, getCodePointLengthNode.execute(b), codeRange, b.taint());
         }
 
         @SuppressWarnings("unused")
@@ -4303,7 +4304,7 @@ public final class TruffleString extends AbstractTruffleString {
             }
             int codeRange = getCodeRangeNode.execute(a);
             a.looseCheckEncoding(expectedEncoding, codeRange);
-            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), codeRange, a.taint);
+            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), codeRange, a.taint());
         }
 
         @Specialization(guards = {"!isEmpty(a)", "!isEmpty(b)"})
@@ -4350,7 +4351,7 @@ public final class TruffleString extends AbstractTruffleString {
             return TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode.getUncached().execute(
                             a.data(), a.offset(), a.length() << a.stride(), encoding.id,
                             TStringInternalNodes.GetCodePointLengthNode.getUncached().execute(a),
-                            TStringInternalNodes.GetCodeRangeNode.getUncached().execute(a), a.taint);
+                            TStringInternalNodes.GetCodeRangeNode.getUncached().execute(a), a.taint());
         }
 
         /**
@@ -5427,7 +5428,7 @@ public final class TruffleString extends AbstractTruffleString {
                 } else {
                     arrayNoCompaction = arrayA;
                 }
-                return fromBufferWithStringCompactionNode.execute(arrayNoCompaction, a.offset(), byteLength, targetEncoding.id, a.isMutable(), true, a.taint);
+                return fromBufferWithStringCompactionNode.execute(arrayNoCompaction, a.offset(), byteLength, targetEncoding.id, a.isMutable(), true, a.taint());
             } else {
                 assert arrayA instanceof NativePointer;
                 return fromNativePointerNode.execute((NativePointer) arrayA, a.offset(), byteLength, targetEncoding.id, true);

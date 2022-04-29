@@ -177,8 +177,7 @@ final class TStringInternalNodes {
             int newStride = Stride.fromCodeRange(StringAttributes.getCodeRange(attrs), encoding);
             byte[] newBytes = new byte[length << newStride];
             arrayCopyNode.execute(array, offset, stride, newBytes, 0, newStride, length);
-            // TODO not sure about offset + length stuff
-            final Object[] taint = subTaintNode.execute(a.taint, offset, offset + length);
+            final Object[] taint = subTaintNode.execute(a.taint(), offset, offset + length);
             return TruffleString.createFromByteArray(newBytes, length, newStride, encoding, StringAttributes.getCodePointLength(attrs), StringAttributes.getCodeRange(attrs), taint);
         }
     }
@@ -1024,7 +1023,7 @@ final class TStringInternalNodes {
                 offset = lazyOffset;
                 stride = a.stride();
             }
-            final Object[] taint = subTaintNode.execute(a.taint, offset, offset + length);
+            final Object[] taint = subTaintNode.execute(a.taint(), offset, offset + length);
             return TruffleString.createFromArray(array, offset, length, stride, a.encoding(), codePointLength, codeRange, true, taint);
         }
     }
@@ -1552,11 +1551,11 @@ final class TStringInternalNodes {
                         @Cached TSTaintNodes.CopyTaintNode copyTaintNode) {
             if (AbstractTruffleString.DEBUG_STRICT_ENCODING_CHECKS && a.isImmutable() && codeRangeA < TruffleString.Encoding.getMaxCompatibleCodeRange(targetEncoding)) {
                 if (a.stride() == 0) {
-                    return TruffleString.createFromArray(arrayA, a.offset(), a.length(), 0, targetEncoding, codePointLengthA, codeRangeA, false, copyTaintNode.execute(a.taint));
+                    return TruffleString.createFromArray(arrayA, a.offset(), a.length(), 0, targetEncoding, codePointLengthA, codeRangeA, false, copyTaintNode.execute(a.taint()));
                 }
                 int targetStride = Stride.fromCodeRange(codeRangeA, targetEncoding);
                 Object array = TStringOps.arraycopyOfWithStride(this, arrayA, a.offset(), a.length(), a.stride(), a.length(), targetStride);
-                return TruffleString.createFromArray(array, 0, a.length(), targetStride, targetEncoding, codePointLengthA, codeRangeA, false, copyTaintNode.execute(a.taint));
+                return TruffleString.createFromArray(array, 0, a.length(), targetStride, targetEncoding, codePointLengthA, codeRangeA, false, copyTaintNode.execute(a.taint()));
             }
             assert a.length() > 0;
             if (asciiBytesInvalidProfile.profile((isAscii(a) || isBytes(a)) && isSupportedEncoding(targetEncoding))) {
@@ -1868,7 +1867,7 @@ final class TStringInternalNodes {
         }
 
         private static TruffleString create(AbstractTruffleString a, byte[] buffer, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead) {
-            final Object[] taint = TSTaintNodes.CopyTaintNode.getUncached().execute(a.taint);
+            final Object[] taint = TSTaintNodes.CopyTaintNode.getUncached().execute(a.taint());
             return TruffleString.createFromByteArray(buffer, length, stride, encoding, codePointLength, codeRange, isCacheHead || a.isMutable(), taint);
         }
 

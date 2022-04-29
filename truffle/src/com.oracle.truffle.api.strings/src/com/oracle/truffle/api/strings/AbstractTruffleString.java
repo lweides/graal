@@ -111,7 +111,7 @@ public abstract class AbstractTruffleString {
      * <p>
      * Will be {@code null} for untainted {@link AbstractTruffleString}s.
      */
-    protected Object[] taint;
+    private Object[] taint;
 
     // TODO provide a global option to enable / disable taint tracking
 
@@ -122,7 +122,6 @@ public abstract class AbstractTruffleString {
         assert isByte(encoding);
         assert isByte(flags);
         assert isSupportedEncoding(encoding) || TStringAccessor.ENGINE.requireLanguageWithAllEncodings(Encoding.get(encoding));
-        assert taint == null || taint.length == length;
         this.data = data;
         this.encoding = (byte) encoding;
         this.offset = offset;
@@ -318,6 +317,14 @@ public abstract class AbstractTruffleString {
      */
     final int flags() {
         return flags;
+    }
+
+    final Object[] taint() {
+        return taint;
+    }
+
+    final void setTaint(Object[] taint) {
+        this.taint = taint;
     }
 
     final int getHashCodeUnsafe() {
