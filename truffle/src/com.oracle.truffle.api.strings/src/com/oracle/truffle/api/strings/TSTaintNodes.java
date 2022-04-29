@@ -16,13 +16,13 @@ public class TSTaintNodes {
 
     @GeneratePackagePrivate
     @GenerateUncached
-    public abstract static class ConcatTaintNode extends Node {
+    public abstract static class ConcatTaintArrayNode extends Node {
 
-        ConcatTaintNode() { }
+        ConcatTaintArrayNode() { }
 
         /**
-         * Concatenates the taint of {@code a} and {@code b}, returning the combined taint.
-         * If both taints are empty or {@code null}, this method may return {@code null}.
+         * Concatenates the taint arrays, returning the combined taint.
+         * If both arrays are {@code null} or contains only {@code null}, this method will return {@code null}.
          */
         public abstract Object[] execute(AbstractTruffleString a, AbstractTruffleString b);
 
@@ -79,19 +79,20 @@ public class TSTaintNodes {
             return null;
         }
 
-        static ConcatTaintNode getUncached() {
-            return TSTaintNodesFactory.ConcatTaintNodeGen.getUncached();
+        static ConcatTaintArrayNode getUncached() {
+            return TSTaintNodesFactory.ConcatTaintArrayNodeGen.getUncached();
         }
     }
 
     @GenerateUncached
-    public abstract static class CopyTaintNode extends Node {
+    public abstract static class CopyTaintArrayNode extends Node {
 
-        CopyTaintNode() { }
+        CopyTaintArrayNode() { }
 
         /**
          * Copies the given {@code taint} array into a new array.
          * The copy is only a shallow one.
+         * This method will return {@code null} is the array is not tainted.
          */
         public abstract Object[] execute(Object[] taint);
 
@@ -107,16 +108,23 @@ public class TSTaintNodes {
             return Arrays.copyOf(taint, taint.length);
         }
 
-        static CopyTaintNode getUncached() {
-            return TSTaintNodesFactory.CopyTaintNodeGen.getUncached();
+        static CopyTaintArrayNode getUncached() {
+            return TSTaintNodesFactory.CopyTaintArrayNodeGen.getUncached();
         }
     }
 
     @GenerateUncached
-    public abstract static class SubTaintNode extends Node {
+    public abstract static class SubTaintArrayNode extends Node {
 
-        SubTaintNode() { }
+        SubTaintArrayNode() { }
 
+        /**
+         * Creates a subTaint array of the given taint array,
+         * which ranges from {@code from} inclusive and {@code to} exclusive.
+         * This method will return {@code null} if the array is not tainted
+         * in the range {@code from - to}.
+         * The sub array is only a shallow copy.
+         */
         public abstract Object[] execute(Object[] taint, int from, int to);
 
         @Specialization(guards = "!isSubArrayTaintedNode.execute(taint, from, to)")
@@ -131,8 +139,8 @@ public class TSTaintNodes {
             return Arrays.copyOfRange(taint, from, to);
         }
 
-        static SubTaintNode getUncached() {
-            return TSTaintNodesFactory.SubTaintNodeGen.getUncached();
+        static SubTaintArrayNode getUncached() {
+            return TSTaintNodesFactory.SubTaintArrayNodeGen.getUncached();
         }
     }
 
@@ -183,6 +191,11 @@ public class TSTaintNodes {
 
         IsArrayTaintedNode() { }
 
+        /**
+         * Checks whether the given array is tainted.
+         * An array is tainted if it is not {@code null} and has at least
+         * one entry which is also not {@code null}.
+         */
         public abstract boolean execute(Object[] taint);
 
         @Specialization(guards = "taint != null")
@@ -314,8 +327,8 @@ public class TSTaintNodes {
         @Specialization(guards = "isSubArrayTaintedNode.execute(a.taint(), from, to)")
         static TruffleString removeTaintTainted(TruffleString a, int from, int to,
                                                   @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
-                                                  @Cached CopyTaintNode copyTaintNode) {
-            final Object[] taintArr = copyTaintNode.execute(a.taint());
+                                                  @Cached CopyTaintArrayNode copyTaintArrayNode) {
+            final Object[] taintArr = copyTaintArrayNode.execute(a.taint());
             Arrays.fill(taintArr, from, to, null);
             return TruffleString.createFromArray(
                     a.data(),
