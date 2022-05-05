@@ -9,6 +9,8 @@ import com.oracle.truffle.api.profiles.ConditionProfile;
 
 import java.util.Arrays;
 
+import static com.oracle.truffle.api.strings.AbstractTruffleString.*;
+
 /**
  * Collection of taint tracking related {@link Node}s.
  */
@@ -31,13 +33,15 @@ public class TSTaintNodes {
         static Object[] concatBothTainted(AbstractTruffleString a, AbstractTruffleString b,
                                           @Cached IsTaintedNode isTaintedNodeA,
                                           @Cached IsTaintedNode isTaintedNodeB,
+                                          @Cached GetTaintNode getTaintNodeA,
+                                          @Cached GetTaintNode getTaintNodeB,
                                           @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNodeA,
                                           @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNodeB) {
             final int lengthA = getCodePointLengthNodeA.execute(a);
             final int lengthB = getCodePointLengthNodeB.execute(b);
             final Object[] taint = new Object[lengthA + lengthB];
-            System.arraycopy(a.taint(), 0, taint, 0, lengthA);
-            System.arraycopy(b.taint(), 0, taint, lengthA, lengthB);
+            System.arraycopy(getTaintNodeA.execute(a), 0, taint, 0, lengthA);
+            System.arraycopy(getTaintNodeB.execute(b), 0, taint, lengthA, lengthB);
             return taint;
         }
 
@@ -46,12 +50,13 @@ public class TSTaintNodes {
         static Object[] concatATainted(AbstractTruffleString a, AbstractTruffleString b,
                                        @Cached IsTaintedNode isTaintedNodeA,
                                        @Cached IsTaintedNode isTaintedNodeB,
+                                       @Cached GetTaintNode getTaintNodeA,
                                        @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNodeA,
                                        @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNodeB) {
             final int lengthA = getCodePointLengthNodeA.execute(a);
             final int lengthB = getCodePointLengthNodeB.execute(b);
             final Object[] taint = new Object[lengthA + lengthB];
-            System.arraycopy(a.taint(), 0, taint, 0, lengthA);
+            System.arraycopy(getTaintNodeA.execute(a), 0, taint, 0, lengthA);
             Arrays.fill(taint, lengthA, taint.length, null);
             return taint;
         }
@@ -61,13 +66,14 @@ public class TSTaintNodes {
         static Object[] concatBTainted(AbstractTruffleString a, AbstractTruffleString b,
                                        @Cached IsTaintedNode isTaintedNodeA,
                                        @Cached IsTaintedNode isTaintedNodeB,
+                                       @Cached GetTaintNode getTaintNodeB,
                                        @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNodeA,
                                        @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNodeB) {
             final int lengthA = getCodePointLengthNodeA.execute(a);
             final int lengthB = getCodePointLengthNodeB.execute(b);
             final Object[] taint = new Object[lengthA + lengthB];
             Arrays.fill(taint, 0, lengthA, null);
-            System.arraycopy(b.taint(), 0, taint, lengthA, lengthB);
+            System.arraycopy(getTaintNodeB.execute(b), 0, taint, lengthA, lengthB);
             return taint;
         }
 
@@ -159,11 +165,7 @@ public class TSTaintNodes {
 
         @Specialization(guards = "taint != null")
         static boolean isTaintedNonNull(Object[] taint, int from, int to) {
-            if (taint == null) {
-                return false;
-            }
-//            assert 0 <= from && from <= to && to <= taint.length;
-            // TODO how to handle constraints?
+            boundsCheckRegionI(from, to - from, taint.length);
             return anyNonNull(taint, from, to);
         }
 
@@ -221,8 +223,6 @@ public class TSTaintNodes {
 
         /**
          * Checks if the given {@link AbstractTruffleString} is tainted.
-         * A {@link AbstractTruffleString} is tainted iff {@link AbstractTruffleString#taint()} is not {@code null}
-         * and contains at least one element, which is also not {@code null}.
          */
         public abstract boolean execute(AbstractTruffleString a);
 
@@ -230,7 +230,11 @@ public class TSTaintNodes {
         @Specialization
         static boolean isTainted(AbstractTruffleString a,
                                  @Cached IsArrayTaintedNode isArrayTaintedNode) {
-            return isArrayTaintedNode.execute(a.taint());
+            final Object data = a.data();
+            if (data instanceof TaintedString) {
+                return isArrayTaintedNode.execute(((TaintedString) data).taint());
+            }
+           return false;
         }
 
         static IsTaintedNode getUncached() {
@@ -250,32 +254,33 @@ public class TSTaintNodes {
 
         @SuppressWarnings("unused")
         @Specialization
-        static AbstractTruffleString addTaint(TruffleString a, Object taint) {
+        static AbstractTruffleString addTaint(TruffleString a, Object taint,
+                                        @Cached IsTaintedNode isTaintedNode,
+                                        @Cached ConditionProfile isTainted) {
+            if (taint == null) {
+                throw new IllegalArgumentException("Taint must not be null");
+            }
             final Object[] taintArr = new Object[a.codePointLength()];
             Arrays.fill(taintArr, taint);
-            return TruffleString.createFromArray(
-                    a.data(),
+            final Object data = isTainted.profile(isTaintedNode.execute(a))
+                    ? ((TaintedString) a.data()).data()
+                    : a.data();
+            return TruffleString.createTainted(
+                    data,
+                    taintArr,
                     a.offset(),
                     a.length(),
                     a.stride(),
                     a.encoding(),
                     a.codePointLength(),
-                    a.codeRange(),
-                    true,
-                    taintArr
+                    a.codeRange()
             );
         }
 
-        // TODO should adding taint to a MutableTruffleString produce a new object?
         @SuppressWarnings("unused")
         @Specialization
-        static AbstractTruffleString addTaint(MutableTruffleString a, Object taint,
-                                              @Cached ConditionProfile taintLengthProfile) {
-            if (taintLengthProfile.profile(a.taint() == null || a.taint().length != a.codePointLength())) {
-                a.setTaint(new Object[a.codePointLength()]);
-            }
-            Arrays.fill(a.taint(), taint);
-            return a;
+        static AbstractTruffleString addTaint(MutableTruffleString a, Object taint) {
+            throw new UnsupportedOperationException("Mutable TruffleStrings cannot be tainted");
         }
 
         static AddTaintNode getUncached() {
@@ -297,7 +302,11 @@ public class TSTaintNodes {
         @SuppressWarnings("unused")
         @Specialization
         static Object[] getTaint(AbstractTruffleString a) {
-            return a.taint();
+            final Object data = a.data();
+            if (data instanceof TaintedString) {
+                return ((TaintedString) data).taint();
+            }
+            return null;
         }
 
         static GetTaintNode getUncached() {
@@ -316,39 +325,55 @@ public class TSTaintNodes {
         public abstract AbstractTruffleString execute(AbstractTruffleString a, int from, int to);
 
         @SuppressWarnings("unused")
-        @Specialization(guards = "!isSubArrayTaintedNode.execute(a.taint(), from, to)")
+        @Specialization(guards = "!isSubArrayTaintedNode.execute(getTaintNode.execute(a), from, to)")
         static AbstractTruffleString removeTaintUntainted(AbstractTruffleString a, int from, int to,
-                                                  @Cached IsSubArrayTaintedNode isSubArrayTaintedNode) {
+                                                  @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
+                                                  @Cached GetTaintNode getTaintNode) {
             return a;
         }
 
 
         @SuppressWarnings("unused")
-        @Specialization(guards = "isSubArrayTaintedNode.execute(a.taint(), from, to)")
+        @Specialization(guards = "isSubArrayTaintedNode.execute(getTaintNode.execute(a), from, to)")
         static TruffleString removeTaintTainted(TruffleString a, int from, int to,
-                                                  @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
-                                                  @Cached CopyTaintArrayNode copyTaintArrayNode) {
-            final Object[] taintArr = copyTaintArrayNode.execute(a.taint());
+                                                @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
+                                                @Cached CopyTaintArrayNode copyTaintArrayNode,
+                                                @Cached GetTaintNode getTaintNode,
+                                                @Cached IsArrayTaintedNode isArrayTaintedNode,
+                                                @Cached ConditionProfile isStillTainted,
+                                                @Cached TruffleString.ToIndexableNode toIndexableNode) {
+            final Object[] taintArr = copyTaintArrayNode.execute(getTaintNode.execute(a));
+            final Object data = ((TaintedString) a.data()).data(); // this cast is safe as we know a is tainted
             Arrays.fill(taintArr, from, to, null);
+            if (isStillTainted.profile(isArrayTaintedNode.execute(taintArr))) {
+                return TruffleString.createTainted(
+                        data,
+                        taintArr,
+                        a.offset(),
+                        a.length(),
+                        a.stride(),
+                        a.encoding(),
+                        a.codePointLength(),
+                        a.codeRange()
+                );
+            }
             return TruffleString.createFromArray(
-                    a.data(),
+                    data,
                     a.offset(),
                     a.length(),
                     a.stride(),
                     a.encoding(),
                     a.codePointLength(),
-                    a.codeRange(),
-                    true,
-                    taintArr
+                    a.codeRange()
             );
         }
 
         @SuppressWarnings("unused")
-        @Specialization(guards = "isSubArrayTaintedNode.execute(a.taint(), from, to)")
+        @Specialization(guards = "isSubArrayTaintedNode.execute(getTaintNode.execute(a), from, to)")
         static MutableTruffleString removeTaintTainted(MutableTruffleString a, int from, int to,
-                                                @Cached IsSubArrayTaintedNode isSubArrayTaintedNode) {
-            Arrays.fill(a.taint(), from, to, null);
-            return a;
+                                                @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
+                                                @Cached GetTaintNode getTaintNode) {
+            throw new UnsupportedOperationException("Mutable TruffleStrings cannot be tainted");
         }
 
         static RemoveTaintNode getUncached() {

@@ -4,6 +4,7 @@ import com.oracle.truffle.api.strings.AbstractTruffleString;
 import com.oracle.truffle.api.strings.TruffleString;
 import org.junit.Test;
 
+import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.DEFAULT_ENCODING;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.from;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.getTaint;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.isTainted;
@@ -12,10 +13,12 @@ import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.taint;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class AddTaintTests {
 
@@ -88,8 +91,11 @@ public class AddTaintTests {
 
     @Test
     public void nullAsTaintLabel() {
-        AbstractTruffleString a = taint("foo", null);
-        // TODO same as indexOutOfBounds - how should this be handled?
-        assertFalse("Tainting with null is not supported", isTainted(a));
+        try {
+           taint("foo", null);
+            fail("Tainting with null is not supported");
+        } catch (NullPointerException e) {
+            assertNotNull(e);
+        }
     }
 }

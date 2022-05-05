@@ -82,7 +82,6 @@ public final class MutableTruffleString extends AbstractTruffleString {
         assert data instanceof byte[] || data instanceof NativePointer;
         if (TruffleString.Encoding.isFixedWidth(encoding)) {
             codePointLength = TruffleString.Encoding.isSupported(encoding) ? length : length / JCodings.getInstance().minLength(TruffleString.Encoding.getJCoding(encoding));
-            assert taint() == null || taint().length == codePointLength;
         }
     }
 

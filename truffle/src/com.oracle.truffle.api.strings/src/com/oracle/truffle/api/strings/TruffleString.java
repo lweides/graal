@@ -139,15 +139,11 @@ public final class TruffleString extends AbstractTruffleString {
     private volatile TruffleString next;
 
     private TruffleString(Object data, int offset, int length, int stride, int encoding, int codePointLength, int codeRange) {
-        this(data, offset, length, stride, encoding, codePointLength, codeRange, true, null);
+        this(data, offset, length, stride, encoding, codePointLength, codeRange, true);
     }
 
     private TruffleString(Object data, int offset, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead) {
-        this(data, offset, length, stride, encoding, codePointLength, codeRange, isCacheHead, null);
-    }
-
-    private TruffleString(Object data, int offset, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead, Object[] taint) {
-        super(data, offset, length, stride, encoding, isCacheHead ? FLAG_CACHE_HEAD : 0, taint);
+        super(data, offset, length, stride, encoding, isCacheHead ? FLAG_CACHE_HEAD : 0);
         assert isByte(codeRange);
         assert codePointLength >= 0;
         assert TSCodeRange.isCodeRange(codeRange);
@@ -157,7 +153,6 @@ public final class TruffleString extends AbstractTruffleString {
         assert !isUTF16(encoding) || !isValidFixedWidth(codeRange) && !isBrokenFixedWidth(codeRange);
         assert !isUTF32(encoding) || !isValidMultiByte(codeRange) && !isBrokenMultiByte(codeRange);
         assert !isBytes(encoding) || is7Bit(codeRange) || isValidFixedWidth(codeRange);
-        assert taint == null || taint.length == codePointLength;
         this.codePointLength = codePointLength;
         this.codeRange = (byte) codeRange;
     }
@@ -166,16 +161,8 @@ public final class TruffleString extends AbstractTruffleString {
         return createFromByteArray(bytes, length, stride, encoding, codePointLength, codeRange, true);
     }
 
-    static TruffleString createFromByteArray(byte[] bytes, int length, int stride, int encoding, int codePointLength, int codeRange, Object[] taint) {
-        return createFromArray(bytes, 0, length, stride, encoding, codePointLength, codeRange, true, taint);
-    }
-
     static TruffleString createFromByteArray(byte[] bytes, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead) {
         return createFromArray(bytes, 0, length, stride, encoding, codePointLength, codeRange, isCacheHead);
-    }
-
-    static TruffleString createFromByteArray(byte[] bytes, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead, Object[] taint) {
-        return createFromArray(bytes, 0, length, stride, encoding, codePointLength, codeRange, isCacheHead, taint);
     }
 
     static TruffleString createFromArray(Object bytes, int offset, int length, int stride, int encoding, int codePointLength, int codeRange) {
@@ -183,15 +170,20 @@ public final class TruffleString extends AbstractTruffleString {
     }
 
     static TruffleString createFromArray(Object bytes, int offset, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead) {
-        return createFromArray(bytes, offset, length, stride, encoding, codePointLength, codeRange, isCacheHead, null);
-    }
-
-    static TruffleString createFromArray(Object bytes, int offset, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead, Object[] taint) {
         assert bytes instanceof byte[] || isInlinedJavaString(bytes) || bytes instanceof NativePointer;
         assert offset >= 0;
         assert bytes instanceof NativePointer || offset + ((long) length << stride) <= TStringOps.byteLength(bytes);
         assert attrsAreCorrect(bytes, encoding, offset, length, codePointLength, codeRange, stride);
-        return new TruffleString(bytes, offset, length, stride, encoding, codePointLength, codeRange, isCacheHead, taint);
+        return new TruffleString(bytes, offset, length, stride, encoding, codePointLength, codeRange, isCacheHead);
+    }
+
+    static TruffleString createTainted(Object data, Object[] taint, int offset, int length, int stride, int encoding, int codePointLength, int codeRange) {
+        return createTainted(data, taint, offset, length, stride, encoding, codePointLength, codeRange, true);
+    }
+
+    static TruffleString createTainted(Object data, Object[] taint, int offset, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead) {
+        // we need no validation, as tainted TS are only created using existing, i.e. already validated, ones
+        return new TruffleString(new TaintedString(data, taint), offset, length, stride, encoding, codePointLength, codeRange, isCacheHead);
     }
 
     static TruffleString createConstant(byte[] bytes, int length, int stride, int encoding, int codePointLength, int codeRange) {
@@ -2238,11 +2230,12 @@ public final class TruffleString extends AbstractTruffleString {
 
         @Specialization
         static TruffleString fromMutableString(MutableTruffleString a, Encoding expectedEncoding,
-                        @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNode,
-                        @Cached TStringInternalNodes.GetCodeRangeNode getCodeRangeNode,
-                        @Cached TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode fromBufferWithStringCompactionNode) {
+                                               @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNode,
+                                               @Cached TStringInternalNodes.GetCodeRangeNode getCodeRangeNode,
+                                               @Cached TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode fromBufferWithStringCompactionNode,
+                                               @Cached TSTaintNodes.GetTaintNode getTaintNode) {
             a.checkEncoding(expectedEncoding);
-            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a), a.taint());
+            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a), getTaintNode.execute(a));
         }
 
         /**
@@ -2299,11 +2292,12 @@ public final class TruffleString extends AbstractTruffleString {
         static TruffleString nativeOrMutable(AbstractTruffleString a, Encoding expectedEncoding,
                         @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNode,
                         @Cached TStringInternalNodes.GetCodeRangeNode getCodeRangeNode,
-                        @Cached TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode fromBufferWithStringCompactionNode) {
+                        @Cached TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode fromBufferWithStringCompactionNode,
+                        @Cached TSTaintNodes.GetTaintNode getTaintNode) {
             a.checkEncoding(expectedEncoding);
             Object data = a.data();
             assert data instanceof byte[] || data instanceof NativePointer;
-            return fromBufferWithStringCompactionNode.execute(data, a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a), a.taint());
+            return fromBufferWithStringCompactionNode.execute(data, a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), getCodeRangeNode.execute(a), getTaintNode.execute(a));
         }
 
         /**
@@ -2365,6 +2359,13 @@ public final class TruffleString extends AbstractTruffleString {
                 data.setBytes((TruffleString) a, NumberConversion.longToString(data.value, a.length()));
             }
             return data.bytes;
+        }
+
+        @Specialization
+        static Object doTaintedString(AbstractTruffleString a, TaintedString data,
+                                      @Cached ToIndexableNode toIndexableNode) {
+            assert !(data.data() instanceof TaintedString) : "Nested TaintedStrings are forbidden";
+            return toIndexableNode.execute(a, data.data());
         }
 
         static ToIndexableNode getUncached() {
@@ -4266,9 +4267,10 @@ public final class TruffleString extends AbstractTruffleString {
         @SuppressWarnings("unused")
         @Specialization(guards = "isEmpty(a)")
         static TruffleString aEmptyMutable(AbstractTruffleString a, MutableTruffleString b, Encoding expectedEncoding, boolean lazy,
-                        @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNode,
-                        @Cached TStringInternalNodes.GetCodeRangeNode getCodeRangeNode,
-                        @Cached TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode fromBufferWithStringCompactionNode) {
+                                           @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNode,
+                                           @Cached TStringInternalNodes.GetCodeRangeNode getCodeRangeNode,
+                                           @Cached TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode fromBufferWithStringCompactionNode,
+                                           @Cached TSTaintNodes.GetTaintNode getTaintNode) {
             CompilerAsserts.partialEvaluationConstant(lazy);
             if (AbstractTruffleString.DEBUG_STRICT_ENCODING_CHECKS) {
                 b.looseCheckEncoding(expectedEncoding, TStringInternalNodes.GetCodeRangeNode.getUncached().execute(b));
@@ -4276,7 +4278,7 @@ public final class TruffleString extends AbstractTruffleString {
             }
             int codeRange = getCodeRangeNode.execute(b);
             b.looseCheckEncoding(expectedEncoding, codeRange);
-            return fromBufferWithStringCompactionNode.execute(b.data(), b.offset(), b.length() << b.stride(), expectedEncoding.id, getCodePointLengthNode.execute(b), codeRange, b.taint());
+            return fromBufferWithStringCompactionNode.execute(b.data(), b.offset(), b.length() << b.stride(), expectedEncoding.id, getCodePointLengthNode.execute(b), codeRange, getTaintNode.execute(b));
         }
 
         @SuppressWarnings("unused")
@@ -4294,9 +4296,10 @@ public final class TruffleString extends AbstractTruffleString {
         @SuppressWarnings("unused")
         @Specialization(guards = "isEmpty(b)")
         static TruffleString bEmptyMutable(MutableTruffleString a, AbstractTruffleString b, Encoding expectedEncoding, boolean lazy,
-                        @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNode,
-                        @Cached TStringInternalNodes.GetCodeRangeNode getCodeRangeNode,
-                        @Cached TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode fromBufferWithStringCompactionNode) {
+                                           @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNode,
+                                           @Cached TStringInternalNodes.GetCodeRangeNode getCodeRangeNode,
+                                           @Cached TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode fromBufferWithStringCompactionNode,
+                                           @Cached TSTaintNodes.GetTaintNode getTaintNode) {
             CompilerAsserts.partialEvaluationConstant(lazy);
             if (AbstractTruffleString.DEBUG_STRICT_ENCODING_CHECKS) {
                 a.looseCheckEncoding(expectedEncoding, TStringInternalNodes.GetCodeRangeNode.getUncached().execute(a));
@@ -4304,7 +4307,7 @@ public final class TruffleString extends AbstractTruffleString {
             }
             int codeRange = getCodeRangeNode.execute(a);
             a.looseCheckEncoding(expectedEncoding, codeRange);
-            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), codeRange, a.taint());
+            return fromBufferWithStringCompactionNode.execute(a.data(), a.offset(), a.length() << a.stride(), expectedEncoding.id, getCodePointLengthNode.execute(a), codeRange, getTaintNode.execute(a));
         }
 
         @Specialization(guards = {"!isEmpty(a)", "!isEmpty(b)"})
@@ -4351,7 +4354,8 @@ public final class TruffleString extends AbstractTruffleString {
             return TStringInternalNodes.FromBufferWithStringCompactionKnownAttributesNode.getUncached().execute(
                             a.data(), a.offset(), a.length() << a.stride(), encoding.id,
                             TStringInternalNodes.GetCodePointLengthNode.getUncached().execute(a),
-                            TStringInternalNodes.GetCodeRangeNode.getUncached().execute(a), a.taint());
+                            TStringInternalNodes.GetCodeRangeNode.getUncached().execute(a),
+                            TSTaintNodes.GetTaintNode.getUncached().execute(a));
         }
 
         /**
@@ -5411,12 +5415,13 @@ public final class TruffleString extends AbstractTruffleString {
 
         @Specialization(guards = "!isCompatibleAndNotCompacted(a, expectedEncoding, targetEncoding)")
         static TruffleString reinterpret(AbstractTruffleString a, Encoding expectedEncoding, Encoding targetEncoding,
-                        @Cached ToIndexableNode toIndexableNode,
-                        @Cached ConditionProfile managedProfile,
-                        @Cached ConditionProfile inflateProfile,
-                        @Cached TruffleString.CopyToByteArrayNode copyToByteArrayNode,
-                        @Cached TStringInternalNodes.FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode,
-                        @Cached TStringInternalNodes.FromNativePointerNode fromNativePointerNode) {
+                                         @Cached ToIndexableNode toIndexableNode,
+                                         @Cached ConditionProfile managedProfile,
+                                         @Cached ConditionProfile inflateProfile,
+                                         @Cached TruffleString.CopyToByteArrayNode copyToByteArrayNode,
+                                         @Cached TStringInternalNodes.FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode,
+                                         @Cached TStringInternalNodes.FromNativePointerNode fromNativePointerNode,
+                                         @Cached TSTaintNodes.GetTaintNode getTaintNode) {
             Object arrayA = toIndexableNode.execute(a, a.data());
             int byteLength = a.length() << expectedEncoding.naturalStride;
             if (managedProfile.profile(arrayA instanceof byte[] || a.isMutable())) {
@@ -5428,7 +5433,7 @@ public final class TruffleString extends AbstractTruffleString {
                 } else {
                     arrayNoCompaction = arrayA;
                 }
-                return fromBufferWithStringCompactionNode.execute(arrayNoCompaction, a.offset(), byteLength, targetEncoding.id, a.isMutable(), true, a.taint());
+                return fromBufferWithStringCompactionNode.execute(arrayNoCompaction, a.offset(), byteLength, targetEncoding.id, a.isMutable(), true, getTaintNode.execute(a));
             } else {
                 assert arrayA instanceof NativePointer;
                 return fromNativePointerNode.execute((NativePointer) arrayA, a.offset(), byteLength, targetEncoding.id, true);

@@ -45,8 +45,9 @@ public class SwitchEncodingTests {
             if (source == TruffleString.Encoding.UTF8_MAC) {
                 continue;
             }
-            // TODO checkstyle command to ignore non ascii chars
+            //CHECKSTYLE:OFF
             AbstractTruffleString a = taint(from("föö", source), "bar");
+            //CHECKSTYLE:ON
             Object[] taintArrSource = getTaint(a);
             assertTrue("Source should be tainted", isTainted(a));
             for (TruffleString.Encoding target : TruffleString.Encoding.values()) {

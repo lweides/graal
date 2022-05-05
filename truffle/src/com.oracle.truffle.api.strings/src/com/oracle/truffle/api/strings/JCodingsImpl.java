@@ -331,8 +331,9 @@ final class JCodingsImpl implements JCodings {
             length = dstPtr.p;
         }
         checkArrayRange(buffer, 0, length);
+        final Object[] taint = TSTaintNodes.GetTaintNode.getUncached().execute(a);
         return fromBufferWithStringCompactionNode.execute(
-                        buffer, 0, length, targetEncoding, length != buffer.length || isSupportedEncoding(targetEncoding), undefinedConversion || a.isMutable(), a.taint());
+                        buffer, 0, length, targetEncoding, length != buffer.length || isSupportedEncoding(targetEncoding), undefinedConversion || a.isMutable(), taint);
     }
 
     @TruffleBoundary

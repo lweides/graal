@@ -46,6 +46,7 @@ import static com.oracle.truffle.api.strings.TStringGuards.isSupportedEncoding;
 import static com.oracle.truffle.api.strings.TStringGuards.isUTF16;
 import static com.oracle.truffle.api.strings.TStringGuards.isUTF32;
 
+import com.oracle.truffle.api.CompilerAsserts;
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.nodes.Node;
@@ -72,6 +73,7 @@ public abstract class AbstractTruffleString {
      * <li>{@link LazyConcat}</li>
      * <li>{@link NativePointer}</li>
      * <li>{@link String} (only for caching results of {@link #toJavaStringUncached()})</li>
+     * <li>{@link TaintedString} if the contained data is tainted</li>
      * </ul>
      */
     private Object data;
@@ -105,17 +107,9 @@ public abstract class AbstractTruffleString {
      * hashCode value of zero always means that the hash is not calculated yet.
      */
     int hashCode = 0;
-    /**
-     * This array stores the taint information of the {@link TruffleString}s. Taint information is
-     * stored on a per codepoint basis, i.e. for every {@link char} is exactly 1 taint {@link Object}.
-     * <p>
-     * Will be {@code null} for untainted {@link AbstractTruffleString}s.
-     */
-    private Object[] taint;
 
-    // TODO provide a global option to enable / disable taint tracking
 
-    AbstractTruffleString(Object data, int offset, int length, int stride, int encoding, int flags, Object[] taint) {
+    AbstractTruffleString(Object data, int offset, int length, int stride, int encoding, int flags) {
         validateData(data, offset, length, stride);
         assert 0 <= encoding && encoding <= Byte.MAX_VALUE;
         assert isByte(stride);
@@ -128,11 +122,6 @@ public abstract class AbstractTruffleString {
         this.length = length;
         this.stride = (byte) stride;
         this.flags = (byte) flags;
-        this.taint = taint;
-    }
-
-    AbstractTruffleString(Object data, int offset, int length, int stride, int encoding, int flags) {
-        this(data, offset, length, stride, encoding, flags, null);
     }
 
     static boolean isByte(int i) {
@@ -148,6 +137,8 @@ public abstract class AbstractTruffleString {
             validateDataLazy(offset, length, stride);
         } else if (data instanceof NativePointer) {
             validateDataNative(offset, length, stride);
+        } else if (data instanceof TaintedString) {
+            validateData(((TaintedString) data).data(), offset, length, stride);
         } else {
             CompilerDirectives.transferToInterpreterAndInvalidate();
             throw CompilerDirectives.shouldNotReachHere();
@@ -252,7 +243,7 @@ public abstract class AbstractTruffleString {
 
     /**
      * Get this string's backing data. This may be a byte array, a {@link String}, a
-     * {@link NativePointer}, a {@link LazyLong}, or a {@link LazyConcat}.
+     * {@link NativePointer}, a {@link LazyLong}, a {@link LazyConcat} or a {@link TaintedString}.
      */
     final Object data() {
         return data;
@@ -276,6 +267,9 @@ public abstract class AbstractTruffleString {
     }
 
     final int byteArrayOffset() {
+        final Object data = this.data instanceof TaintedString
+                ? ((TaintedString) this.data).data()
+                : this.data;
         assert data instanceof byte[] || data instanceof NativePointer || data instanceof LazyLong;
         assert !(data instanceof NativePointer) || offset() == ((NativePointer) data).offset();
         return data instanceof NativePointer ? 0 : offset();
@@ -317,14 +311,6 @@ public abstract class AbstractTruffleString {
      */
     final int flags() {
         return flags;
-    }
-
-    final Object[] taint() {
-        return taint;
-    }
-
-    final void setTaint(Object[] taint) {
-        this.taint = taint;
     }
 
     final int getHashCodeUnsafe() {
@@ -1307,6 +1293,35 @@ public abstract class AbstractTruffleString {
 
         void invalidateCachedByteArray() {
             byteArrayIsValid = false;
+        }
+    }
+
+    /**
+     * Tracks taint data of the underlying {@link AbstractTruffleString#data} field.
+     */
+    static final class TaintedString {
+
+        /**
+         * The taint of {@link TaintedString#data}.
+         */
+        private final Object[] taint;
+        /**
+         * Can be of the same type as {@link AbstractTruffleString#data}, except {@link TaintedString}.
+         */
+        private final Object data;
+
+        TaintedString(Object data, Object[] taint) {
+            assert data instanceof byte[] || data instanceof LazyConcat || data instanceof NativePointer || data instanceof String : "Unsupported underlying data";
+            this.data = data;
+            this.taint = taint;
+        }
+
+        Object data() {
+            return data;
+        }
+
+        Object[] taint() {
+            return taint;
         }
     }
 }
