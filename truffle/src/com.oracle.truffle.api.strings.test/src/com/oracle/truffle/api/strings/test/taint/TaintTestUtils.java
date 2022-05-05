@@ -1,6 +1,7 @@
 package com.oracle.truffle.api.strings.test.taint;
 
 import com.oracle.truffle.api.strings.AbstractTruffleString;
+import com.oracle.truffle.api.strings.TSTaintNodes;
 import com.oracle.truffle.api.strings.TSTaintNodesFactory;
 import com.oracle.truffle.api.strings.TruffleString;
 
@@ -65,7 +66,6 @@ public class TaintTestUtils {
     }
 
     public static boolean isTainted(AbstractTruffleString ts) {
-        // TODO maybe create methods on TruffleString for this
         return TSTaintNodesFactory.IsTaintedNodeGen.getUncached().execute(ts);
     }
 
@@ -75,5 +75,9 @@ public class TaintTestUtils {
 
     public static AbstractTruffleString removeTaint(AbstractTruffleString a, int from, int to) {
         return TSTaintNodesFactory.RemoveTaintNodeGen.getUncached().execute(a, from, to);
+    }
+
+    public static Object[] concatTaint(AbstractTruffleString a, AbstractTruffleString b) {
+        return TSTaintNodesFactory.ConcatTaintArrayNodeGen.getUncached().execute(a, b);
     }
 }

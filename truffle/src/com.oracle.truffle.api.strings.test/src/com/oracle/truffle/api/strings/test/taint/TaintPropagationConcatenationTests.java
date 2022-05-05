@@ -3,8 +3,11 @@ package com.oracle.truffle.api.strings.test.taint;
 import com.oracle.truffle.api.strings.AbstractTruffleString;
 import org.junit.Test;
 
+import java.util.Arrays;
+
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.DEFAULT_ENCODING;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.concat;
+import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.concatTaint;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.from;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.getTaint;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.isTainted;
@@ -108,11 +111,82 @@ public class TaintPropagationConcatenationTests {
     @Test
     public void lazyConcat() {
         // see min lazy concat length
-        AbstractTruffleString a = taint("fooooooooooooooooooooooooooooooooooooooooo");
-        AbstractTruffleString b = taint("baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaar");
+        AbstractTruffleString a = concat(
+                taint("fooooooooooooooooooooooooooooooooooooooooo"),
+                taint("baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaar"),
+                DEFAULT_ENCODING,
+                true
+        );
+
+        assertTrue("TS should be tainted", isTainted(a));
+    }
+
+    @Test
+    public void lazyConcatTaintLabels() {
+        AbstractTruffleString a = taint("fooooooooooooooooooooooooooooooooooooooooo", 1);
+        AbstractTruffleString b = taint("baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaar", 2);
         AbstractTruffleString c = concat(a, b, DEFAULT_ENCODING, true);
 
-        // TODO implement taint propagation for lazy concat
-//        assertTrue("TS should be tainted", isTainted(c));
+        Object[] taint = getTaint(c);
+        Object[] expectedTaint = concatTaint(a, b);
+
+        assertArrayEquals("Taint labels should be equal", expectedTaint, taint);
+        assertTrue("TS should be tainted", isTainted(c));
+
+    }
+
+    @Test
+    public void nestedLazyConcat() {
+        AbstractTruffleString a = taint("fooooooooooooooooooooooooooooooooooooooooo", 1);
+        AbstractTruffleString b = taint("baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaar", 2);
+        AbstractTruffleString c = concat(a, b, DEFAULT_ENCODING, true);
+        AbstractTruffleString d = taint("baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaar", 3);
+        AbstractTruffleString e = concat(c, d, DEFAULT_ENCODING, true);
+
+        Object[] taint = getTaint(e);
+        Object[] expectedTaint = concatTaint(c, d);
+        assertArrayEquals("Taint labels should be equal", expectedTaint, taint);
+        assertTrue("TS should be tainted", isTainted(e));
+    }
+
+    @Test
+    public void lazyConcatMaterialized() {
+        AbstractTruffleString a = concat(
+                taint("fooooooooooooooooooooooooooooooooooooooooo"),
+                taint("baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaar"),
+                DEFAULT_ENCODING,
+                true
+        );
+
+        AbstractTruffleString b = concat(a, from(""), DEFAULT_ENCODING, false);
+        assertTrue("TS should be tainted", isTainted(a));
+        assertTrue("TS should be tainted", isTainted(b));
+
+    }
+
+    @Test
+    public void nestedLazyConcatMaterialized() {
+        AbstractTruffleString a = concat(
+                concat(
+                        taint("fooooooooooooooooooooooooooooooooooooooooo"),
+                        taint("baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaar"),
+                        DEFAULT_ENCODING,
+                        true
+                ),
+                taint("baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaar"),
+                DEFAULT_ENCODING,
+                true
+        );
+        AbstractTruffleString b = concat(a, from(""), DEFAULT_ENCODING, false);
+
+        assertTrue("TS should be tainted", isTainted(a));
+        assertTrue("TS should be tainted", isTainted(b));
+
+        assertEquals(
+                "TS concatenation should work as expected",
+                "fooooooooooooooooooooooooooooooooooooooooobaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaarbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaar",
+                b.toString()
+        );
+
     }
 }

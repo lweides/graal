@@ -16,7 +16,6 @@ import static com.oracle.truffle.api.strings.AbstractTruffleString.*;
  */
 public class TSTaintNodes {
 
-    @GeneratePackagePrivate
     @GenerateUncached
     public abstract static class ConcatTaintArrayNode extends Node {
 
@@ -229,10 +228,19 @@ public class TSTaintNodes {
         @SuppressWarnings("unused")
         @Specialization
         static boolean isTainted(AbstractTruffleString a,
-                                 @Cached IsArrayTaintedNode isArrayTaintedNode) {
+                                 @Cached IsArrayTaintedNode isArrayTaintedNode,
+                                 @Cached IsTaintedNode isTaintedNodeLeft,
+                                 @Cached IsTaintedNode isTaintedNodeRight,
+                                 @Cached ConditionProfile isTaintedString,
+                                 @Cached ConditionProfile isLazyConcat) {
             final Object data = a.data();
-            if (data instanceof TaintedString) {
+            if (isTaintedString.profile(data instanceof TaintedString)) {
                 return isArrayTaintedNode.execute(((TaintedString) data).taint());
+            }
+            if (isLazyConcat.profile(data instanceof LazyConcat)) {
+                final TruffleString left = ((LazyConcat) data).left();
+                final TruffleString right = ((LazyConcat) data).right();
+                return isTaintedNodeLeft.execute(left) || isTaintedNodeRight.execute(right);
             }
            return false;
         }
@@ -300,12 +308,22 @@ public class TSTaintNodes {
         public abstract Object[] execute(AbstractTruffleString a);
 
         @SuppressWarnings("unused")
-        @Specialization
-        static Object[] getTaint(AbstractTruffleString a) {
+        @Specialization(guards = "isTaintedNode.execute(a)")
+        static Object[] getTaintTainted(AbstractTruffleString a,
+                                 @Cached IsTaintedNode isTaintedNode,
+                                 @Cached ConditionProfile isLazyConcat) {
             final Object data = a.data();
-            if (data instanceof TaintedString) {
-                return ((TaintedString) data).taint();
+            if (isLazyConcat.profile(data instanceof LazyConcat)) {
+                return LazyConcat.flattenTaint((TruffleString) a);
             }
+            assert data instanceof TaintedString;
+            return ((TaintedString) data).taint();
+        }
+
+        @SuppressWarnings("unused")
+        @Specialization(guards = "!isTaintedNode.execute(a)")
+        static Object[] getTaintNotTainted(AbstractTruffleString a,
+                                 @Cached IsTaintedNode isTaintedNode) {
             return null;
         }
 

@@ -2343,11 +2343,19 @@ public final class TruffleString extends AbstractTruffleString {
         }
 
         @Specialization
-        byte[] doLazyConcat(AbstractTruffleString a, @SuppressWarnings("unused") LazyConcat data) {
+        Object doLazyConcat(AbstractTruffleString a, @SuppressWarnings("unused") LazyConcat data,
+                            @Cached TSTaintNodes.IsTaintedNode isTaintedNode,
+                            @Cached ConditionProfile isTainted) {
             // note: the write to a.data is racy, and we deliberately read it from the TString
             // object again after the race to de-duplicate simultaneously generated arrays
-            a.setData(LazyConcat.flatten(this, (TruffleString) a));
-            return (byte[]) a.data();
+            final byte[] flattenedData = LazyConcat.flatten(this, (TruffleString) a);
+            if (isTainted.profile(isTaintedNode.execute(a))) {
+                final Object[] taint = LazyConcat.flattenTaint((TruffleString) a);
+                a.setData(new TaintedString(flattenedData, taint));
+            } else {
+                a.setData(LazyConcat.flatten(this, (TruffleString) a));
+            }
+            return a.data();
         }
 
         @Specialization

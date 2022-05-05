@@ -94,7 +94,7 @@ public class AddTaintTests {
         try {
            taint("foo", null);
             fail("Tainting with null is not supported");
-        } catch (NullPointerException e) {
+        } catch (IllegalArgumentException e) {
             assertNotNull(e);
         }
     }

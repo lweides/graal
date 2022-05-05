@@ -48,6 +48,7 @@ import static com.oracle.truffle.api.strings.TStringGuards.isUTF32;
 
 import com.oracle.truffle.api.CompilerAsserts;
 import com.oracle.truffle.api.CompilerDirectives;
+import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.profiles.ConditionProfile;
@@ -255,6 +256,14 @@ public abstract class AbstractTruffleString {
             throw CompilerDirectives.shouldNotReachHere();
         }
         this.data = array;
+    }
+
+    final void setData(TaintedString data) {
+        if (offset() != 0 || length() << stride() != ((byte[]) data.data()).length) {
+            CompilerDirectives.transferToInterpreterAndInvalidate();
+            throw CompilerDirectives.shouldNotReachHere();
+        }
+        this.data = data;
     }
 
     /**
@@ -1144,8 +1153,6 @@ public abstract class AbstractTruffleString {
 
     static final class LazyConcat {
 
-        // TODO introduce taint tracking in here
-
         private final TruffleString left;
         private final TruffleString right;
 
@@ -1154,11 +1161,44 @@ public abstract class AbstractTruffleString {
             this.right = right;
         }
 
+        TruffleString left() {
+            return left;
+        }
+
+        TruffleString right() {
+            return right;
+        }
+
         @TruffleBoundary
         static byte[] flatten(Node location, TruffleString a) {
             byte[] dst = new byte[a.length() << a.stride()];
             flatten(location, a, 0, a.length(), dst, 0, a.stride());
             return dst;
+        }
+
+        static Object[] flattenTaint(TruffleString a) {
+            final Object data = a.data();
+            if (data instanceof LazyConcat) {
+                LazyConcat lazy = (LazyConcat) data;
+                final Object[] taintLeft = flattenTaint(lazy.left);
+                final Object[] taintRight = flattenTaint(lazy.right);
+                if (taintLeft == null && taintRight == null) {
+                    return null;
+                }
+                final int lengthLeft = lazy.left.codePointLength();
+                final int lengthRight = lazy.right.codePointLength();
+                final Object[] taint = new Object[lengthLeft + lengthRight];
+                if (taintLeft != null) {
+                    System.arraycopy(taintLeft, 0, taint, 0, lengthLeft);
+                }
+                if (taintRight != null) {
+                    System.arraycopy(taintRight, 0, taint, lengthLeft, lengthRight);
+                }
+                return taint;
+            } else if (data instanceof TaintedString) {
+                return ((TaintedString) data).taint();
+            }
+            return null;
         }
 
         @TruffleBoundary
@@ -1304,14 +1344,15 @@ public abstract class AbstractTruffleString {
         /**
          * The taint of {@link TaintedString#data}.
          */
+        @CompilationFinal(dimensions = 1)
         private final Object[] taint;
         /**
-         * Can be of the same type as {@link AbstractTruffleString#data}, except {@link TaintedString}.
+         * Can be of the same types as {@link AbstractTruffleString#data}, except {@link TaintedString}.
          */
         private final Object data;
 
         TaintedString(Object data, Object[] taint) {
-            assert data instanceof byte[] || data instanceof LazyConcat || data instanceof NativePointer || data instanceof String : "Unsupported underlying data";
+            assert !(data instanceof TaintedString) : "Nested tainted strings are forbidden";
             this.data = data;
             this.taint = taint;
         }
