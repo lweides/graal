@@ -41,7 +41,6 @@
 package com.oracle.truffle.api.strings.test.taint;
 
 import com.oracle.truffle.api.strings.AbstractTruffleString;
-import com.oracle.truffle.api.strings.TSTaintNodes;
 import com.oracle.truffle.api.strings.TSTaintNodesFactory;
 import com.oracle.truffle.api.strings.TruffleString;
 

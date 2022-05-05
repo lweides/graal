@@ -41,7 +41,6 @@
 package com.oracle.truffle.api.strings;
 
 import com.oracle.truffle.api.dsl.Cached;
-import com.oracle.truffle.api.dsl.GeneratePackagePrivate;
 import com.oracle.truffle.api.dsl.GenerateUncached;
 import com.oracle.truffle.api.dsl.Specialization;
 import com.oracle.truffle.api.nodes.Node;
@@ -49,7 +48,9 @@ import com.oracle.truffle.api.profiles.ConditionProfile;
 
 import java.util.Arrays;
 
-import static com.oracle.truffle.api.strings.AbstractTruffleString.*;
+import static com.oracle.truffle.api.strings.AbstractTruffleString.LazyConcat;
+import static com.oracle.truffle.api.strings.AbstractTruffleString.TaintedString;
+import static com.oracle.truffle.api.strings.AbstractTruffleString.boundsCheckRegionI;
 
 /**
  * Collection of taint tracking related {@link Node}s.

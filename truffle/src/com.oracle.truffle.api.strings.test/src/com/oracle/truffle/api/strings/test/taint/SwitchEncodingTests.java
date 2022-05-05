@@ -85,9 +85,9 @@ public class SwitchEncodingTests {
             if (source == TruffleString.Encoding.UTF8_MAC) {
                 continue;
             }
-            //CHECKSTYLE:OFF
+            // Checkstyle: stop
             AbstractTruffleString a = taint(from("föö", source), "bar");
-            //CHECKSTYLE:ON
+            // Checkstyle: resume
             Object[] taintArrSource = getTaint(a);
             assertTrue("Source should be tainted", isTainted(a));
             for (TruffleString.Encoding target : TruffleString.Encoding.values()) {

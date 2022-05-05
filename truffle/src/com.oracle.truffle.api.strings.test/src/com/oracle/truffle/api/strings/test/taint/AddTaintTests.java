@@ -44,7 +44,6 @@ import com.oracle.truffle.api.strings.AbstractTruffleString;
 import com.oracle.truffle.api.strings.TruffleString;
 import org.junit.Test;
 
-import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.DEFAULT_ENCODING;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.from;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.getTaint;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.isTainted;
@@ -103,8 +102,7 @@ public class AddTaintTests {
         TruffleString empty = from("");
         AbstractTruffleString tainted = taint(empty);
         assertFalse("Empty TS cannot be tainted", isTainted(tainted));
-        // TODO should they be the same object?
-//        assertSame("As taint is NOP should be same object", empty, tainted);
+        assertNotSame("Taint always creates a new TS", empty, tainted);
     }
 
     @Test

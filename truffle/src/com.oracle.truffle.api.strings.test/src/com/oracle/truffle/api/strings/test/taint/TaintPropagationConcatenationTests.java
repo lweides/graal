@@ -43,8 +43,6 @@ package com.oracle.truffle.api.strings.test.taint;
 import com.oracle.truffle.api.strings.AbstractTruffleString;
 import org.junit.Test;
 
-import java.util.Arrays;
-
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.DEFAULT_ENCODING;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.concat;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.concatTaint;
