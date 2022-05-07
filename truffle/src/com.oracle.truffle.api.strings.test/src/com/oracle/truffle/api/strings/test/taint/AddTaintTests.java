@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * The Universal Permissive License (UPL), Version 1.0
@@ -41,6 +41,7 @@
 package com.oracle.truffle.api.strings.test.taint;
 
 import com.oracle.truffle.api.strings.AbstractTruffleString;
+import com.oracle.truffle.api.strings.MutableTruffleString;
 import com.oracle.truffle.api.strings.TruffleString;
 import org.junit.Test;
 
@@ -48,6 +49,7 @@ import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.from;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.getTaint;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.isTainted;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.length;
+import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.mutableFrom;
 import static com.oracle.truffle.api.strings.test.taint.TaintTestUtils.taint;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -136,4 +138,15 @@ public class AddTaintTests {
             assertNotNull(e);
         }
     }
+
+   @Test
+    public void mutableTruffleStringsNotSupported() {
+        MutableTruffleString a = mutableFrom("foo");
+        try {
+            taint(a);
+            fail("MutableTruffleString does not support tainting");
+        } catch (UnsupportedOperationException e) {
+            assertNotNull(e);
+        }
+   }
 }

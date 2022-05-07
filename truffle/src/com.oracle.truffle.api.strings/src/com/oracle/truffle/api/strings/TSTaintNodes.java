@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * The Universal Permissive License (UPL), Version 1.0
@@ -56,6 +56,10 @@ import static com.oracle.truffle.api.strings.AbstractTruffleString.boundsCheckRe
  * Collection of taint tracking related {@link Node}s.
  */
 public class TSTaintNodes {
+
+    private static UnsupportedOperationException mutableTruffleStringsNotSupported() {
+        return new UnsupportedOperationException("MutableTruffleStrings are not supported");
+    }
 
     @GenerateUncached
     public abstract static class ConcatTaintArrayNode extends Node {
@@ -205,7 +209,6 @@ public class TSTaintNodes {
 
         @Specialization(guards = "taint != null")
         static boolean isTaintedNonNull(Object[] taint, int from, int to) {
-            boundsCheckRegionI(from, to - from, taint.length);
             return anyNonNull(taint, from, to);
         }
 
@@ -215,7 +218,7 @@ public class TSTaintNodes {
         }
 
         private static boolean anyNonNull(Object[] taint, int from, int to) {
-            for (int i = from; i < to; i++) {
+            for (int i = Math.max(0, from); i < Math.min(taint.length, to); i++) {
                 if (taint[i] != null) {
                     return true;
                 }
@@ -328,8 +331,8 @@ public class TSTaintNodes {
 
         @SuppressWarnings("unused")
         @Specialization
-        static AbstractTruffleString addTaint(MutableTruffleString a, Object taint) {
-            throw new UnsupportedOperationException("Mutable TruffleStrings cannot be tainted");
+        static AbstractTruffleString unsupported(MutableTruffleString a, Object taint) {
+            throw mutableTruffleStringsNotSupported();
         }
 
         static AddTaintNode getUncached() {
@@ -385,7 +388,7 @@ public class TSTaintNodes {
 
         @SuppressWarnings("unused")
         @Specialization(guards = "!isSubArrayTaintedNode.execute(getTaintNode.execute(a), from, to)")
-        static AbstractTruffleString removeTaintUntainted(AbstractTruffleString a, int from, int to,
+        static AbstractTruffleString removeTaintUntainted(TruffleString a, int from, int to,
                                                   @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
                                                   @Cached GetTaintNode getTaintNode) {
             return a;
@@ -397,16 +400,22 @@ public class TSTaintNodes {
         static TruffleString removeTaintTainted(TruffleString a, int from, int to,
                                                 @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
                                                 @Cached CopyTaintArrayNode copyTaintArrayNode,
+                                                @Cached ConditionProfile isTaintedString,
                                                 @Cached GetTaintNode getTaintNode,
                                                 @Cached IsArrayTaintedNode isArrayTaintedNode,
                                                 @Cached ConditionProfile isStillTainted,
                                                 @Cached TruffleString.ToIndexableNode toIndexableNode) {
             final Object[] taintArr = copyTaintArrayNode.execute(getTaintNode.execute(a));
-            final Object data = ((TaintedString) a.data()).data(); // this cast is safe as we know a is tainted
+            boundsCheckRegionI(from, to - from, taintArr.length);
             Arrays.fill(taintArr, from, to, null);
+            final Object data = a.data();
+            final Object nestedData = isTaintedString.profile(data instanceof TaintedString)
+                    ? ((TaintedString) data).data()
+                    : data;
+
             if (isStillTainted.profile(isArrayTaintedNode.execute(taintArr))) {
                 return TruffleString.createTainted(
-                        data,
+                        nestedData,
                         taintArr,
                         a.offset(),
                         a.length(),
@@ -417,7 +426,7 @@ public class TSTaintNodes {
                 );
             }
             return TruffleString.createFromArray(
-                    data,
+                    nestedData,
                     a.offset(),
                     a.length(),
                     a.stride(),
@@ -428,11 +437,9 @@ public class TSTaintNodes {
         }
 
         @SuppressWarnings("unused")
-        @Specialization(guards = "isSubArrayTaintedNode.execute(getTaintNode.execute(a), from, to)")
-        static MutableTruffleString removeTaintTainted(MutableTruffleString a, int from, int to,
-                                                @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
-                                                @Cached GetTaintNode getTaintNode) {
-            throw new UnsupportedOperationException("Mutable TruffleStrings cannot be tainted");
+        @Specialization
+        static MutableTruffleString unsupported(MutableTruffleString a, int from, int to) {
+            throw mutableTruffleStringsNotSupported();
         }
 
         static RemoveTaintNode getUncached() {

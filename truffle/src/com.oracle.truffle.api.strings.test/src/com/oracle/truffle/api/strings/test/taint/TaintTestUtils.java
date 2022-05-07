@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * The Universal Permissive License (UPL), Version 1.0
@@ -41,6 +41,7 @@
 package com.oracle.truffle.api.strings.test.taint;
 
 import com.oracle.truffle.api.strings.AbstractTruffleString;
+import com.oracle.truffle.api.strings.MutableTruffleString;
 import com.oracle.truffle.api.strings.TSTaintNodesFactory;
 import com.oracle.truffle.api.strings.TruffleString;
 
@@ -56,12 +57,28 @@ public class TaintTestUtils {
         return TruffleString.FromJavaStringNode.getUncached().execute(value, encoding);
     }
 
+    public static MutableTruffleString mutableFrom(String value) {
+        return mutableFrom(value, DEFAULT_ENCODING);
+    }
+
+    public static MutableTruffleString mutableFrom(String value, TruffleString.Encoding encoding) {
+        return MutableTruffleString.AsMutableTruffleStringNode.getUncached().execute(from(value, encoding), encoding);
+    }
+
     public static int length(AbstractTruffleString a) {
         return length(a, DEFAULT_ENCODING);
     }
 
     public static int length(AbstractTruffleString a, TruffleString.Encoding encoding) {
         return TruffleString.CodePointLengthNode.getUncached().execute(a, encoding);
+    }
+
+    public static AbstractTruffleString concat(AbstractTruffleString ... strings) {
+        AbstractTruffleString a = strings[0];
+        for (int i = 1; i < strings.length; i++) {
+            a = concat(a, strings[i]);
+        }
+        return a;
     }
 
     public static AbstractTruffleString concat(AbstractTruffleString a, AbstractTruffleString b) {
