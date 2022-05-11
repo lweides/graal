@@ -307,16 +307,15 @@ public class TSTaintNodes {
         @SuppressWarnings("unused")
         @Specialization
         static AbstractTruffleString addTaint(TruffleString a, Object taint,
-                                        @Cached IsTaintedNode isTaintedNode,
-                                        @Cached ConditionProfile isTainted) {
+                                              @Cached IsTaintedNode isTaintedNode,
+                                              @Cached ConditionProfile isTainted,
+                                              @Cached TruffleString.ToIndexableNode toIndexableNode) {
             if (taint == null) {
                 throw new IllegalArgumentException("Taint must not be null");
             }
             final Object[] taintArr = new Object[a.codePointLength()];
             Arrays.fill(taintArr, taint);
-            final Object data = isTainted.profile(isTaintedNode.execute(a))
-                    ? ((TaintedString) a.data()).data()
-                    : a.data();
+            final Object data = toIndexableNode.execute(a, a.data());
             return TruffleString.createTainted(
                     data,
                     taintArr,
@@ -400,7 +399,6 @@ public class TSTaintNodes {
         static TruffleString removeTaintTainted(TruffleString a, int from, int to,
                                                 @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
                                                 @Cached CopyTaintArrayNode copyTaintArrayNode,
-                                                @Cached ConditionProfile isTaintedString,
                                                 @Cached GetTaintNode getTaintNode,
                                                 @Cached IsArrayTaintedNode isArrayTaintedNode,
                                                 @Cached ConditionProfile isStillTainted,
@@ -408,14 +406,11 @@ public class TSTaintNodes {
             final Object[] taintArr = copyTaintArrayNode.execute(getTaintNode.execute(a));
             boundsCheckRegionI(from, to - from, taintArr.length);
             Arrays.fill(taintArr, from, to, null);
-            final Object data = a.data();
-            final Object nestedData = isTaintedString.profile(data instanceof TaintedString)
-                    ? ((TaintedString) data).data()
-                    : data;
+            final Object data = toIndexableNode.execute(a, a.data());
 
             if (isStillTainted.profile(isArrayTaintedNode.execute(taintArr))) {
                 return TruffleString.createTainted(
-                        nestedData,
+                        data,
                         taintArr,
                         a.offset(),
                         a.length(),
@@ -425,8 +420,9 @@ public class TSTaintNodes {
                         a.codeRange()
                 );
             }
+
             return TruffleString.createFromArray(
-                    nestedData,
+                    data,
                     a.offset(),
                     a.length(),
                     a.stride(),

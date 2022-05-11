@@ -2352,9 +2352,10 @@ public final class TruffleString extends AbstractTruffleString {
             if (isTainted.profile(isTaintedNode.execute(a))) {
                 final Object[] taint = LazyConcat.flattenTaint((TruffleString) a);
                 a.setData(new TaintedString(flattenedData, taint));
-            } else {
-                a.setData(LazyConcat.flatten(this, (TruffleString) a));
+                return ((TaintedString) a.data()).data();
             }
+
+            a.setData(flattenedData);
             return a.data();
         }
 
