@@ -734,16 +734,14 @@ public final class TruffleStringBuilder {
                            @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNode,
                            @Cached TStringInternalNodes.GetCodeRangeNode getCodeRangeNode,
                            @Cached AppendArrayIntlNode appendArrayIntlNode,
-                           @Cached TSTaintNodes.GetTaintNode getTaintNode,
                            @Cached AppendTaintNode appendTaintNode) {
             if (a.length() == 0) {
                 return;
             }
             a.checkEncoding(sb.encoding);
             final int codePointLength = getCodePointLengthNode.execute(a);
-            final Object[] taint = getTaintNode.execute(a);
-            appendTaintNode.execute(sb, taint, 0, codePointLength);
             Object arrayA = toIndexableNode.execute(a, a.data());
+            appendTaintNode.execute(sb, a, 0, codePointLength);
             int codeRangeA = getCodeRangeNode.execute(a);
             sb.updateCodeRange(codeRangeA);
             int newStride = Math.max(sb.stride, Stride.fromCodeRange(codeRangeA, sb.encoding.id));
@@ -811,7 +809,6 @@ public final class TruffleStringBuilder {
                            @Cached AppendArrayIntlNode appendArrayIntlNode,
                            @Cached TStringInternalNodes.CalcStringAttributesNode calcAttributesNode,
                            @Cached ConditionProfile calcAttrsProfile,
-                           @Cached TSTaintNodes.GetTaintNode getTaintNode,
                            @Cached AppendTaintNode appendTaintNode) {
             if (byteLength == 0) {
                 return;
@@ -838,8 +835,7 @@ public final class TruffleStringBuilder {
                 codeRange = TSCodeRange.getUnknown();
                 codePointLength = 0;
             }
-            final Object[] taint = getTaintNode.execute(a);
-            appendTaintNode.execute(sb, taint, fromIndex, fromIndex + length);
+            appendTaintNode.execute(sb, a, fromIndex, fromIndex + length);
             sb.updateCodeRange(codeRange);
             appendArrayIntlNode.execute(sb, arrayA, a.offset() + (fromIndex << a.stride()), length, a.stride(), Stride.fromCodeRange(sb.codeRange, sb.encoding.id));
             sb.appendLength(length, codePointLength);
@@ -1019,8 +1015,7 @@ public final class TruffleStringBuilder {
         static TruffleString createString(TruffleStringBuilder sb, boolean lazy,
                                           @Cached ConditionProfile calcAttributesProfile,
                                           @Cached TStringInternalNodes.CalcStringAttributesNode calcAttributesNode,
-                                          @Cached TSTaintNodes.IsSubArrayTaintedNode isSubArrayTaintedNode,
-                                          @Cached ConditionProfile isArrayTainted) {
+                                          @Cached ConditionProfile isTaintNonNull) {
             if (sb.length == 0) {
                 return sb.encoding.getEmpty();
             }
@@ -1036,7 +1031,7 @@ public final class TruffleStringBuilder {
             }
             int byteLength = sb.length << sb.stride;
             byte[] bytes = lazy || sb.buf.length == byteLength ? sb.buf : Arrays.copyOf(sb.buf, byteLength);
-            if (isArrayTainted.profile(isSubArrayTaintedNode.execute(sb.taint, 0, codePointLength))) {
+            if (isTaintNonNull.profile(sb.taint != null)) {
                 final Object[] taint = codePointLength == sb.taint.length
                         ? sb.taint
                         : Arrays.copyOf(sb.taint, codePointLength);
@@ -1142,6 +1137,7 @@ public final class TruffleStringBuilder {
         }
     }
 
+    @ImportStatic(TSTaintGuards.class)
     @GenerateUncached
     @GeneratePackagePrivate
     abstract static class AppendTaintNode extends Node {
@@ -1153,21 +1149,24 @@ public final class TruffleStringBuilder {
          * This operation is a NOP if the given taint is either {@code null} or
          * not tainted in the range {@code from - to}.
          */
-        abstract void execute(TruffleStringBuilder sb, Object[] taint, int from, int to);
+        abstract void execute(TruffleStringBuilder sb, AbstractTruffleString a, int from, int to);
 
-        @Specialization(guards = "!isSubArrayTaintedNode.execute(taint, from, to)")
-        static void appendNotTainted(TruffleStringBuilder sb, Object[] taint, int from, int to,
+        @Specialization(guards = "!isSubArrayTaintedNode.execute(getTaintNode.execute(a), from, to)")
+        static void appendNotTainted(TruffleStringBuilder sb, AbstractTruffleString a, int from, int to,
+                                     @Cached TSTaintNodes.GetTaintNode getTaintNode,
                                      @Cached TSTaintNodes.IsSubArrayTaintedNode isSubArrayTaintedNode) {
             // nothing to do, capacity is only increased when actual taint has to be stored
         }
 
-        @Specialization(guards = "isSubArrayTaintedNode.execute(taint, from, to)")
-        static void appendTainted(TruffleStringBuilder sb, Object[] taint, int from, int to,
+        @Specialization(guards = "isSubArrayTaintedNode.execute(getTaintNode.execute(a), from, to)")
+        static void appendTainted(TruffleStringBuilder sb, AbstractTruffleString a, int from, int to,
+                                  @Cached TSTaintNodes.GetTaintNode getTaintNode,
                                   @Cached TSTaintNodes.IsSubArrayTaintedNode isSubArrayTaintedNode,
                                   @Cached ConditionProfile taintGrowProfile,
                                   @Cached ConditionProfile taintNull) {
             final int length = to - from;
             sb.ensureTaintCapacity(length, taintGrowProfile, taintNull);
+            final Object[] taint = ((AbstractTruffleString.TaintedString) a.data()).taint();
             System.arraycopy(taint, from, sb.taint, sb.codePointLength, length);
         }
 

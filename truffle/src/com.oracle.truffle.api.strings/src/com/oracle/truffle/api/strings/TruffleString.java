@@ -5429,8 +5429,7 @@ public final class TruffleString extends AbstractTruffleString {
                                          @Cached ConditionProfile inflateProfile,
                                          @Cached TruffleString.CopyToByteArrayNode copyToByteArrayNode,
                                          @Cached TStringInternalNodes.FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode,
-                                         @Cached TStringInternalNodes.FromNativePointerNode fromNativePointerNode,
-                                         @Cached TSTaintNodes.GetTaintNode getTaintNode) {
+                                         @Cached TStringInternalNodes.FromNativePointerNode fromNativePointerNode) {
             Object arrayA = toIndexableNode.execute(a, a.data());
             int byteLength = a.length() << expectedEncoding.naturalStride;
             if (managedProfile.profile(arrayA instanceof byte[] || a.isMutable())) {
@@ -5442,7 +5441,8 @@ public final class TruffleString extends AbstractTruffleString {
                 } else {
                     arrayNoCompaction = arrayA;
                 }
-                return fromBufferWithStringCompactionNode.execute(arrayNoCompaction, a.offset(), byteLength, targetEncoding.id, a.isMutable(), true, getTaintNode.execute(a));
+                assert !TSTaintNodes.IsTaintedNode.getUncached().execute(a);
+                return fromBufferWithStringCompactionNode.execute(arrayNoCompaction, a.offset(), byteLength, targetEncoding.id, a.isMutable(), true, null);
             } else {
                 assert arrayA instanceof NativePointer;
                 return fromNativePointerNode.execute((NativePointer) arrayA, a.offset(), byteLength, targetEncoding.id, true);

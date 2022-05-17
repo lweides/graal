@@ -138,7 +138,7 @@ public abstract class AbstractTruffleString {
         } else if (data instanceof NativePointer) {
             validateDataNative(offset, length, stride);
         } else if (data instanceof TaintedString) {
-            validateData(((TaintedString) data).data(), offset, length, stride);
+            validateDataTainted(((TaintedString) data).data(), offset, length, stride);
         } else {
             CompilerDirectives.transferToInterpreterAndInvalidate();
             throw CompilerDirectives.shouldNotReachHere();
@@ -161,6 +161,21 @@ public abstract class AbstractTruffleString {
 
     private static void validateDataNative(int offset, int length, int stride) {
         if (!Stride.isStride(stride) || offset < 0 || length < 0 || (((long) length) << stride) > Integer.MAX_VALUE) {
+            CompilerDirectives.transferToInterpreterAndInvalidate();
+            throw CompilerDirectives.shouldNotReachHere();
+        }
+    }
+
+    private static void validateDataTainted(Object data, int offset, int length, int stride) {
+        if (data instanceof byte[]) {
+            validateDataArray(offset, length, stride, ((byte[]) data).length);
+        } else if (data instanceof String) {
+            validateDataArray(offset, length, stride, ((String) data).length() << TStringUnsafe.getJavaStringStride((String) data));
+        } else if (data instanceof LazyLong || data instanceof LazyConcat) {
+            validateDataLazy(offset, length, stride);
+        } else if (data instanceof NativePointer) {
+            validateDataNative(offset, length, stride);
+        } else {
             CompilerDirectives.transferToInterpreterAndInvalidate();
             throw CompilerDirectives.shouldNotReachHere();
         }
@@ -337,6 +352,10 @@ public abstract class AbstractTruffleString {
 
     final boolean isLazyConcat() {
         return data instanceof AbstractTruffleString.LazyConcat;
+    }
+
+    final boolean isTaintedString() {
+        return data instanceof TaintedString;
     }
 
     final boolean isLazyLong() {
@@ -1352,6 +1371,7 @@ public abstract class AbstractTruffleString {
 
         TaintedString(Object data, Object[] taint) {
             assert !(data instanceof TaintedString) : "Nested tainted strings are forbidden";
+            assert !(data instanceof LazyConcat) : "LazyConcats have to be materialized";
             this.data = data;
             this.taint = taint;
         }

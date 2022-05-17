@@ -42,6 +42,7 @@ package com.oracle.truffle.api.strings;
 
 import com.oracle.truffle.api.dsl.Cached;
 import com.oracle.truffle.api.dsl.GenerateUncached;
+import com.oracle.truffle.api.dsl.ImportStatic;
 import com.oracle.truffle.api.dsl.Specialization;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.profiles.ConditionProfile;
@@ -72,7 +73,6 @@ public class TSTaintNodes {
          */
         public abstract Object[] execute(AbstractTruffleString a, AbstractTruffleString b);
 
-        @SuppressWarnings("unused")
         @Specialization(guards = { "isTaintedNodeA.execute(a)", "isTaintedNodeB.execute(b)" })
         static Object[] concatBothTainted(AbstractTruffleString a, AbstractTruffleString b,
                                           @Cached IsTaintedNode isTaintedNodeA,
@@ -89,7 +89,7 @@ public class TSTaintNodes {
             return taint;
         }
 
-        @SuppressWarnings("unused")
+
         @Specialization(guards = { "isTaintedNodeA.execute(a)", "!isTaintedNodeB.execute(b)" })
         static Object[] concatATainted(AbstractTruffleString a, AbstractTruffleString b,
                                        @Cached IsTaintedNode isTaintedNodeA,
@@ -105,7 +105,6 @@ public class TSTaintNodes {
             return taint;
         }
 
-        @SuppressWarnings("unused")
         @Specialization(guards = { "!isTaintedNodeA.execute(a)", "isTaintedNodeB.execute(b)" })
         static Object[] concatBTainted(AbstractTruffleString a, AbstractTruffleString b,
                                        @Cached IsTaintedNode isTaintedNodeA,
@@ -121,7 +120,6 @@ public class TSTaintNodes {
             return taint;
         }
 
-        @SuppressWarnings("unused")
         @Specialization(guards = { "!isTaintedNodeA.execute(a)", "!isTaintedNodeB.execute(b)" })
         static Object[] concatNoneTainted(AbstractTruffleString a, AbstractTruffleString b,
                                           @Cached IsTaintedNode isTaintedNodeA,
@@ -259,6 +257,7 @@ public class TSTaintNodes {
         }
     }
 
+    @ImportStatic(TSTaintGuards.class)
     @GenerateUncached
     public abstract static class IsTaintedNode extends Node {
 
@@ -269,24 +268,24 @@ public class TSTaintNodes {
          */
         public abstract boolean execute(AbstractTruffleString a);
 
-        @SuppressWarnings("unused")
-        @Specialization
-        static boolean isTainted(AbstractTruffleString a,
-                                 @Cached IsArrayTaintedNode isArrayTaintedNode,
-                                 @Cached IsTaintedNode isTaintedNodeLeft,
-                                 @Cached IsTaintedNode isTaintedNodeRight,
-                                 @Cached ConditionProfile isTaintedString,
-                                 @Cached ConditionProfile isLazyConcat) {
-            final Object data = a.data();
-            if (isTaintedString.profile(data instanceof TaintedString)) {
-                return isArrayTaintedNode.execute(((TaintedString) data).taint());
-            }
-            if (isLazyConcat.profile(data instanceof LazyConcat)) {
-                final TruffleString left = ((LazyConcat) data).left();
-                final TruffleString right = ((LazyConcat) data).right();
-                return isTaintedNodeLeft.execute(left) || isTaintedNodeRight.execute(right);
-            }
-           return false;
+        @Specialization(guards = "a.isTaintedString()")
+        static boolean isTaintedTaintedString(AbstractTruffleString a,
+                                              @Cached IsArrayTaintedNode isArrayTaintedNode) {
+            final TaintedString data = (TaintedString) a.data();
+            return isArrayTaintedNode.execute(data.taint());
+        }
+
+        @Specialization(guards = "a.isLazyConcat()")
+        static boolean isTaintedLazyConcat(AbstractTruffleString a,
+                                           @Cached IsTaintedNode isTaintedNodeLeft,
+                                           @Cached IsTaintedNode isTaintedNodeRight) {
+            final LazyConcat data = (LazyConcat) a.data();
+            return isTaintedNodeLeft.execute(data.left()) || isTaintedNodeRight.execute(data.right());
+        }
+
+        @Specialization(guards = "!isPossiblyTainted(a.data())")
+        static boolean isNotTainted(AbstractTruffleString a) {
+            return false;
         }
 
         static IsTaintedNode getUncached() {
@@ -304,11 +303,9 @@ public class TSTaintNodes {
          */
         public abstract AbstractTruffleString execute(AbstractTruffleString a, Object taint);
 
-        @SuppressWarnings("unused")
         @Specialization
         static AbstractTruffleString addTaint(TruffleString a, Object taint,
                                               @Cached IsTaintedNode isTaintedNode,
-                                              @Cached ConditionProfile isTainted,
                                               @Cached TruffleString.ToIndexableNode toIndexableNode) {
             if (taint == null) {
                 throw new IllegalArgumentException("Taint must not be null");
@@ -328,7 +325,6 @@ public class TSTaintNodes {
             );
         }
 
-        @SuppressWarnings("unused")
         @Specialization
         static AbstractTruffleString unsupported(MutableTruffleString a, Object taint) {
             throw mutableTruffleStringsNotSupported();
@@ -339,6 +335,7 @@ public class TSTaintNodes {
         }
     }
 
+    @ImportStatic(TSTaintGuards.class)
     @GenerateUncached
     public abstract static class GetTaintNode extends Node {
 
@@ -350,23 +347,19 @@ public class TSTaintNodes {
          */
         public abstract Object[] execute(AbstractTruffleString a);
 
-        @SuppressWarnings("unused")
-        @Specialization(guards = "isTaintedNode.execute(a)")
-        static Object[] getTaintTainted(AbstractTruffleString a,
-                                 @Cached IsTaintedNode isTaintedNode,
-                                 @Cached ConditionProfile isLazyConcat) {
-            final Object data = a.data();
-            if (isLazyConcat.profile(data instanceof LazyConcat)) {
-                return LazyConcat.flattenTaint((TruffleString) a);
-            }
-            assert data instanceof TaintedString;
-            return ((TaintedString) data).taint();
+        @Specialization(guards = "a.isTaintedString()")
+        static Object[] getTaintTaintedString(AbstractTruffleString a) {
+            final TaintedString data = (TaintedString) a.data();
+            return data.taint();
         }
 
-        @SuppressWarnings("unused")
-        @Specialization(guards = "!isTaintedNode.execute(a)")
-        static Object[] getTaintNotTainted(AbstractTruffleString a,
-                                 @Cached IsTaintedNode isTaintedNode) {
+        @Specialization(guards = "a.isLazyConcat()")
+        static Object[] getTaintLazyConcat(AbstractTruffleString a) {
+            return LazyConcat.flattenTaint((TruffleString) a);
+        }
+
+        @Specialization(guards = "!isPossiblyTainted(a.data())")
+        static Object[] getTaintNotTainted(AbstractTruffleString a) {
             return null;
         }
 
@@ -375,6 +368,7 @@ public class TSTaintNodes {
         }
     }
 
+    @ImportStatic(TSTaintGuards.class)
     @GenerateUncached
     public abstract static class RemoveTaintNode extends Node {
 
@@ -385,8 +379,7 @@ public class TSTaintNodes {
          */
         public abstract AbstractTruffleString execute(AbstractTruffleString a, int from, int to);
 
-        @SuppressWarnings("unused")
-        @Specialization(guards = "!isSubArrayTaintedNode.execute(getTaintNode.execute(a), from, to)")
+        @Specialization(guards = "!isPossiblyTainted(a.data()) || !isSubArrayTaintedNode.execute(getTaintNode.execute(a), from, to)")
         static AbstractTruffleString removeTaintUntainted(TruffleString a, int from, int to,
                                                   @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
                                                   @Cached GetTaintNode getTaintNode) {
@@ -394,8 +387,10 @@ public class TSTaintNodes {
         }
 
 
-        @SuppressWarnings("unused")
-        @Specialization(guards = "isSubArrayTaintedNode.execute(getTaintNode.execute(a), from, to)")
+        @Specialization(guards = {
+                "isPossiblyTainted(a.data())",
+                "isSubArrayTaintedNode.execute(getTaintNode.execute(a), from, to)"
+        })
         static TruffleString removeTaintTainted(TruffleString a, int from, int to,
                                                 @Cached IsSubArrayTaintedNode isSubArrayTaintedNode,
                                                 @Cached CopyTaintArrayNode copyTaintArrayNode,
@@ -432,7 +427,6 @@ public class TSTaintNodes {
             );
         }
 
-        @SuppressWarnings("unused")
         @Specialization
         static MutableTruffleString unsupported(MutableTruffleString a, int from, int to) {
             throw mutableTruffleStringsNotSupported();

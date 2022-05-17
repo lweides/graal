@@ -125,7 +125,7 @@ final class JCodingsDisabled implements JCodings {
 
     @Override
     public TruffleString transcode(Node location, AbstractTruffleString a, Object arrayA, int codePointLengthA, int targetEncoding, ConditionProfile outOfMemoryProfile, ConditionProfile nativeProfile,
-                    TStringInternalNodes.FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode) {
+                                   TStringInternalNodes.FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode, TSTaintNodes.GetTaintNode getTaintNode) {
         throw CompilerDirectives.shouldNotReachHere(MESSAGE);
     }
 

@@ -270,7 +270,8 @@ final class JCodingsImpl implements JCodings {
     public TruffleString transcode(Node location, AbstractTruffleString a, Object arrayA, int codePointLengthA, int targetEncoding,
                     ConditionProfile outOfMemoryProfile,
                     ConditionProfile nativeProfile,
-                    TStringInternalNodes.FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode) {
+                    TStringInternalNodes.FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode,
+                    TSTaintNodes.GetTaintNode getTaintNode) {
         final JCodings.Encoding jCodingSrc;
         if (isUTF16Or32(a) && isStride0(a)) {
             jCodingSrc = TruffleString.Encoding.ISO_8859_1.getJCoding();
@@ -331,7 +332,7 @@ final class JCodingsImpl implements JCodings {
             length = dstPtr.p;
         }
         checkArrayRange(buffer, 0, length);
-        final Object[] taint = TSTaintNodes.GetTaintNode.getUncached().execute(a);
+        final Object[] taint = getTaintNode.execute(a);
         return fromBufferWithStringCompactionNode.execute(
                         buffer, 0, length, targetEncoding, length != buffer.length || isSupportedEncoding(targetEncoding), undefinedConversion || a.isMutable(), taint);
     }
