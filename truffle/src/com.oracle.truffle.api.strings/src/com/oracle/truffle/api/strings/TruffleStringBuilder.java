@@ -835,7 +835,7 @@ public final class TruffleStringBuilder {
                 codeRange = TSCodeRange.getUnknown();
                 codePointLength = 0;
             }
-            appendTaintNode.execute(sb, a, fromIndex, fromIndex + length);
+            appendTaintNode.execute(sb, a, fromIndex, fromIndex + codePointLength);
             sb.updateCodeRange(codeRange);
             appendArrayIntlNode.execute(sb, arrayA, a.offset() + (fromIndex << a.stride()), length, a.stride(), Stride.fromCodeRange(sb.codeRange, sb.encoding.id));
             sb.appendLength(length, codePointLength);

@@ -347,7 +347,14 @@ public abstract class AbstractTruffleString {
 
     // don't use this on fast path
     final boolean isMaterialized() {
-        return data instanceof byte[] || isLazyLong() && ((AbstractTruffleString.LazyLong) data).bytes != null;
+        if (data instanceof byte[] || isLazyLong() && ((AbstractTruffleString.LazyLong) data).bytes != null) {
+            return true;
+        } else if (data instanceof TaintedString) {
+            final TaintedString tainted = (TaintedString) data;
+            final Object data = tainted.data();
+            return data instanceof byte[] || data instanceof LazyLong && ((AbstractTruffleString.LazyLong) data).bytes != null;
+        }
+        return false;
     }
 
     final boolean isLazyConcat() {

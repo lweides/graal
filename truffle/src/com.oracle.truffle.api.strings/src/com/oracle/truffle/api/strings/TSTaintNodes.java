@@ -330,7 +330,7 @@ public class TSTaintNodes {
             throw mutableTruffleStringsNotSupported();
         }
 
-        static AddTaintNode getUncached() {
+        public static AddTaintNode getUncached() {
             return TSTaintNodesFactory.AddTaintNodeGen.getUncached();
         }
     }
