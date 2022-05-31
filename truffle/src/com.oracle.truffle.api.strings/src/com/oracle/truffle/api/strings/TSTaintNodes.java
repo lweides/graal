@@ -62,6 +62,12 @@ public class TSTaintNodes {
         return new UnsupportedOperationException("MutableTruffleStrings are not supported");
     }
 
+    /**
+     * Used in:
+     * <ul>
+     *     <li>{@link ConcatEagerNode#concatTainted}</li>
+     * </ul>
+     */
     @GenerateUncached
     public abstract static class ConcatTaintArrayNode extends Node {
 
@@ -132,6 +138,25 @@ public class TSTaintNodes {
         }
     }
 
+    /**
+     * Used in:
+     * <ul>
+     *     <li>{@link FromBufferWithStringCompactionNode#fromBufferWithStringCompaction}</li>
+     *     <li>{@link FromBufferWithStringCompactionKnownAttributesNode#fromBufferWithStringCompaction}</li>
+     *     <li>{@link TransCodeNode#transcode}</li>
+     *     <li>{@link TransCodeIntlNode#targetAscii}</li>
+     *     <li>{@link TransCodeIntlNode#latin1Transcode}</li>
+     *     <li>{@link TransCodeIntlNode#utf8TranscodeRegular}</li>
+     *     <li>{@link TransCodeIntlNode#utf8TranscodeLarge}</li>
+     *     <li>{@link TransCodeIntlNode#utf8Transcode}</li>
+     *     <li>{@link TransCodeIntlNode#utf16Fixed32Bit}</li>
+     *     <li>{@link TransCodeIntlNode#utf16TranscodeRegular}</li>
+     *     <li>{@link TransCodeIntlNode#utf16TranscodeLarge}</li>
+     *     <li>{@link TransCodeIntlNode#utf32TranscodeRegular}</li>
+     *     <li>{@link TransCodeIntlNode#utf32TranscodeUTF16}</li>
+     *     <li>{@link TransCodeIntlNode#utf32TranscodeRegular}</li>
+     * </ul>
+     */
     @GenerateUncached
     public abstract static class CopyTaintArrayNode extends Node {
 
@@ -161,6 +186,14 @@ public class TSTaintNodes {
         }
     }
 
+    /**
+     * Used in:
+     * <ul>
+     *     <li>{@link CreateSubstringNode#doCached}</li>
+     *     <li>{@link CreateSubstringNode#doUncached}</li>
+     *     <li>{@link SubstringNode#createLazySubstring}</li>
+     * </ul>
+     */
     @GenerateUncached
     public abstract static class SubTaintArrayNode extends Node {
 
@@ -192,6 +225,14 @@ public class TSTaintNodes {
         }
     }
 
+    /**
+     * Used in:
+     * <ul>
+     *      <li>{@link SubstringNode#createLazySubstring}</li>
+     *     <li>{@link AppendTaintNode#appendTainted}</li>
+     *     <li>{@link AppendTaintNode#appendNotTainted}</li>
+     * </ul>
+     */
     @GenerateUncached
     public abstract static class IsSubArrayTaintedNode extends Node {
 
@@ -229,6 +270,27 @@ public class TSTaintNodes {
         }
     }
 
+    /**
+     * Used in:
+     * <ul>
+     *     <li>{@link CreateSubstringNode#doCached}</li>
+     *     <li>{@link CreateSubstringNode#doUncached}</li>
+     *     <li>{@link FromBufferWithStringCompactionNode#fromBufferWithStringCompaction}</li>
+     *     <li>{@link FromBufferWithStringCompactionKnownAttributesNode#fromBufferWithStringCompaction}</li>
+     *     <li>{@link TransCodeNode#transcode}</li>
+     *     <li>{@link TransCodeIntlNode#targetAscii}</li>
+     *     <li>{@link TransCodeIntlNode#latin1Transcode}</li>
+     *     <li>{@link TransCodeIntlNode#utf8TranscodeRegular}</li>
+     *     <li>{@link TransCodeIntlNode#utf8TranscodeLarge}</li>
+     *     <li>{@link TransCodeIntlNode#utf8Transcode}</li>
+     *     <li>{@link TransCodeIntlNode#utf16Fixed32Bit}</li>
+     *     <li>{@link TransCodeIntlNode#utf16TranscodeRegular}</li>
+     *     <li>{@link TransCodeIntlNode#utf16TranscodeLarge}</li>
+     *     <li>{@link TransCodeIntlNode#utf32TranscodeRegular}</li>
+     *     <li>{@link TransCodeIntlNode#utf32TranscodeUTF16}</li>
+     *     <li>{@link TransCodeIntlNode#utf32TranscodeRegular}</li>
+     * </ul>
+     */
     @GenerateUncached
     public abstract static class IsArrayTaintedNode extends Node {
 
@@ -257,6 +319,13 @@ public class TSTaintNodes {
         }
     }
 
+    /**
+     * Used in:
+     * <ul>
+     *     <li>{@link ConcatEagerNode#concatTainted}</li>
+     *     <li>{@link ToIndexableNode#doLazyConcat}</li>
+     * </ul>
+     */
     @ImportStatic(TSTaintGuards.class)
     @GenerateUncached
     public abstract static class IsTaintedNode extends Node {
@@ -293,6 +362,9 @@ public class TSTaintNodes {
         }
     }
 
+    /**
+     * No implicit uses.
+     */
     @GenerateUncached
     public abstract static class AddTaintNode extends Node {
 
@@ -335,6 +407,34 @@ public class TSTaintNodes {
         }
     }
 
+    /**
+     * Used in:
+     * <ul>
+     *     <li>{@link CreateSubstringNode#doCached}</li>
+     *     <li>{@link CreateSubstringNode#doUncached}</li>
+     *     <li>{@link FromBufferWithStringCompactionNode#fromBufferWithStringCompaction}</li>
+     *     <li>{@link FromBufferWithStringCompactionKnownAttributesNode#fromBufferWithStringCompaction}</li>
+     *     <li>{@link TransCodeNode#transcode}</li>
+     *     <li>{@link TransCodeIntlNode#targetAscii}</li>
+     *     <li>{@link TransCodeIntlNode#latin1Transcode}</li>
+     *     <li>{@link TransCodeIntlNode#utf8TranscodeRegular}</li>
+     *     <li>{@link TransCodeIntlNode#utf8TranscodeLarge}</li>
+     *     <li>{@link TransCodeIntlNode#utf8Transcode}</li>
+     *     <li>{@link TransCodeIntlNode#utf16Fixed32Bit}</li>
+     *     <li>{@link TransCodeIntlNode#utf16TranscodeRegular}</li>
+     *     <li>{@link TransCodeIntlNode#utf16TranscodeLarge}</li>
+     *     <li>{@link TransCodeIntlNode#utf32TranscodeRegular}</li>
+     *     <li>{@link TransCodeIntlNode#utf32TranscodeUTF16}</li>
+     *     <li>{@link TransCodeIntlNode#utf32TranscodeRegular}</li>
+     *     <li>{@link TransCodeIntlNode#unsupported}</li>
+     *     <li>{@link AsTruffleStringNode#fromMutableString}</li>
+     *     <li>{@link AsManagedNode#nativeOrMutable}</li>
+     *     <li>{@link ConcatNode#fromMutableString}</li>
+     *     <li>{@link ConcatNode#aEmptyMutable}</li>
+     *     <li>{@link AppendTaintNode#appendNotTainted}</li>
+     *     <li>{@link AppendTaintNode#appendTainted}</li>
+     * </ul>
+     */
     @ImportStatic(TSTaintGuards.class)
     @GenerateUncached
     public abstract static class GetTaintNode extends Node {
@@ -368,6 +468,9 @@ public class TSTaintNodes {
         }
     }
 
+    /**
+     * No implicit uses.
+     */
     @ImportStatic(TSTaintGuards.class)
     @GenerateUncached
     public abstract static class RemoveTaintNode extends Node {
