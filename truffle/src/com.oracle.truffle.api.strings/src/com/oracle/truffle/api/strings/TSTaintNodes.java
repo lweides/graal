@@ -51,6 +51,7 @@ import java.util.Arrays;
 
 import static com.oracle.truffle.api.strings.AbstractTruffleString.LazyConcat;
 import static com.oracle.truffle.api.strings.AbstractTruffleString.TaintedString;
+import static com.oracle.truffle.api.strings.AbstractTruffleString.boundsCheckI;
 import static com.oracle.truffle.api.strings.AbstractTruffleString.boundsCheckRegionI;
 
 /**
@@ -63,7 +64,7 @@ public class TSTaintNodes {
     }
 
     /**
-     * Used in:
+     * The following list contains the usages of this node.
      * <ul>
      *     <li>{@link ConcatEagerNode#concatTainted}</li>
      * </ul>
@@ -139,7 +140,7 @@ public class TSTaintNodes {
     }
 
     /**
-     * Used in:
+     * The following list contains the usages of this node.
      * <ul>
      *     <li>{@link FromBufferWithStringCompactionNode#fromBufferWithStringCompaction}</li>
      *     <li>{@link FromBufferWithStringCompactionKnownAttributesNode#fromBufferWithStringCompaction}</li>
@@ -187,7 +188,7 @@ public class TSTaintNodes {
     }
 
     /**
-     * Used in:
+     * The following list contains the usages of this node.
      * <ul>
      *     <li>{@link CreateSubstringNode#doCached}</li>
      *     <li>{@link CreateSubstringNode#doUncached}</li>
@@ -226,7 +227,7 @@ public class TSTaintNodes {
     }
 
     /**
-     * Used in:
+     * The following list contains the usages of this node.
      * <ul>
      *      <li>{@link SubstringNode#createLazySubstring}</li>
      *     <li>{@link AppendTaintNode#appendTainted}</li>
@@ -271,7 +272,7 @@ public class TSTaintNodes {
     }
 
     /**
-     * Used in:
+     * The following list contains the usages of this node.
      * <ul>
      *     <li>{@link CreateSubstringNode#doCached}</li>
      *     <li>{@link CreateSubstringNode#doUncached}</li>
@@ -320,7 +321,7 @@ public class TSTaintNodes {
     }
 
     /**
-     * Used in:
+     * The following list contains the usages of this node.
      * <ul>
      *     <li>{@link ConcatEagerNode#concatTainted}</li>
      *     <li>{@link ToIndexableNode#doLazyConcat}</li>
@@ -377,13 +378,64 @@ public class TSTaintNodes {
 
         @Specialization
         static AbstractTruffleString addTaint(TruffleString a, Object taint,
-                                              @Cached IsTaintedNode isTaintedNode,
-                                              @Cached TruffleString.ToIndexableNode toIndexableNode) {
+                                              @Cached AddTaintInRangeNode addTaintInRangeNode) {
+            return addTaintInRangeNode.execute(a, taint, 0, a.codePointLength());
+        }
+
+        @Specialization
+        static AbstractTruffleString unsupported(MutableTruffleString a, Object taint) {
+            throw mutableTruffleStringsNotSupported();
+        }
+
+        public static AddTaintNode getUncached() {
+            return TSTaintNodesFactory.AddTaintNodeGen.getUncached();
+        }
+    }
+
+    @GenerateUncached
+    public abstract static class AddTaintInRangeNode extends Node {
+
+        AddTaintInRangeNode() { }
+
+        /**
+         * Adds taint to the given {@link AbstractTruffleString} in the given range.
+         * {@code from} is inclusive, {@code to} is exclusive.
+         */
+        public abstract AbstractTruffleString execute(AbstractTruffleString a, Object taint, int from, int to);
+
+        @Specialization(guards = "!isTaintedNode.execute(a) || covers(from, to, getCodePointLengthNode.execute(a))")
+        static AbstractTruffleString addTaintInRangeUntainted(TruffleString a, Object taint, int from, int to,
+                                                     @Cached IsTaintedNode isTaintedNode,
+                                                     @Cached TStringInternalNodes.GetCodePointLengthNode getCodePointLengthNode,
+                                                     @Cached TruffleString.ToIndexableNode toIndexableNode) {
             if (taint == null) {
                 throw new IllegalArgumentException("Taint must not be null");
             }
             final Object[] taintArr = new Object[a.codePointLength()];
-            Arrays.fill(taintArr, taint);
+            return create(a, taint, from, to, toIndexableNode, taintArr);
+        }
+
+        @Specialization(guards = "isTaintedNode.execute(a)")
+        static AbstractTruffleString addTaintInRangeTainted(TruffleString a, Object taint, int from, int to,
+                                                     @Cached IsTaintedNode isTaintedNode,
+                                                     @Cached GetTaintNode getTaintNode,
+                                                     @Cached CopyTaintArrayNode copyTaintArrayNode,
+                                                     @Cached TruffleString.ToIndexableNode toIndexableNode) {
+            if (taint == null) {
+                throw new IllegalArgumentException("Taint must not be null");
+            }
+            final Object[] taintArr = copyTaintArrayNode.execute(getTaintNode.execute(a));
+            return create(a, taint, from, to, toIndexableNode, taintArr);
+        }
+
+        @Specialization
+        static AbstractTruffleString unsupported(MutableTruffleString a, Object taint, int from, int to) {
+            throw mutableTruffleStringsNotSupported();
+        }
+
+        private static AbstractTruffleString create(TruffleString a, Object taint, int from, int to, TruffleString.ToIndexableNode toIndexableNode, Object[] taintArr) {
+            boundsCheckRegionI(from, to - from, taintArr.length);
+            Arrays.fill(taintArr, from, to, taint);
             final Object data = toIndexableNode.execute(a, a.data());
             return TruffleString.createTainted(
                     data,
@@ -397,18 +449,17 @@ public class TSTaintNodes {
             );
         }
 
-        @Specialization
-        static AbstractTruffleString unsupported(MutableTruffleString a, Object taint) {
-            throw mutableTruffleStringsNotSupported();
+        static boolean covers(int from, int to, int length) {
+            return from - to == length;
         }
 
-        public static AddTaintNode getUncached() {
-            return TSTaintNodesFactory.AddTaintNodeGen.getUncached();
+        public static AddTaintInRangeNode getUncached() {
+            return TSTaintNodesFactory.AddTaintInRangeNodeGen.getUncached();
         }
     }
 
     /**
-     * Used in:
+     * The following list contains the usages of this node.
      * <ul>
      *     <li>{@link CreateSubstringNode#doCached}</li>
      *     <li>{@link CreateSubstringNode#doUncached}</li>
@@ -465,6 +516,38 @@ public class TSTaintNodes {
 
         static GetTaintNode getUncached() {
             return TSTaintNodesFactory.GetTaintNodeGen.getUncached();
+        }
+    }
+
+    @ImportStatic(TSTaintGuards.class)
+    @GenerateUncached
+    public abstract static class GetTaintAtCodePointNode extends Node {
+
+        GetTaintAtCodePointNode() { }
+
+        /**
+         * Returns the taint label of the specified codePoint.
+         * If the {@link AbstractTruffleString} is not tainted, this method will return {@code null}
+         * and not perform any bound checks.
+         */
+        public abstract Object execute(AbstractTruffleString a, int codePoint);
+
+        @Specialization(guards = "getTaintNode.execute(a) != null")
+        static Object getTaintTainted(AbstractTruffleString a, int codePoint,
+                               @Cached GetTaintNode getTaintNode) {
+            final Object[] taintArr = getTaintNode.execute(a);
+            boundsCheckI(codePoint, taintArr.length);
+            return taintArr[codePoint];
+        }
+
+        @Specialization(guards = "getTaintNode.execute(a) == null")
+        static Object getTaintUntainted(AbstractTruffleString a, int codePoint,
+                                      @Cached GetTaintNode getTaintNode) {
+            return null;
+        }
+
+        static GetTaintAtCodePointNode getUncached() {
+            return TSTaintNodesFactory.GetTaintAtCodePointNodeGen.getUncached();
         }
     }
 

@@ -105,6 +105,14 @@ public class TaintTestUtils {
         return a.switchEncodingUncached(encoding);
     }
 
+    public static AbstractTruffleString taintInRange(String value, Object taint, int from, int to) {
+        return TSTaintNodesFactory.AddTaintInRangeNodeGen.getUncached().execute(from(value), taint, from, to);
+    }
+
+    public static AbstractTruffleString taintInRange(AbstractTruffleString ts, Object taint, int from, int to) {
+        return TSTaintNodesFactory.AddTaintInRangeNodeGen.getUncached().execute(ts, taint, from, to);
+    }
+
     public static AbstractTruffleString taint(String value) {
         return taint(from(value));
     }
@@ -127,6 +135,10 @@ public class TaintTestUtils {
 
     public static Object[] getTaint(AbstractTruffleString a) {
         return TSTaintNodesFactory.GetTaintNodeGen.getUncached().execute(a);
+    }
+
+    public static Object getTaintAtCodePoint(AbstractTruffleString a, int codePoint) {
+        return TSTaintNodesFactory.GetTaintAtCodePointNodeGen.getUncached().execute(a, codePoint);
     }
 
     public static AbstractTruffleString removeTaint(AbstractTruffleString a, int from, int to) {
