@@ -1372,7 +1372,8 @@ public abstract class AbstractTruffleString {
         @CompilationFinal(dimensions = 1)
         private final Object[] taint;
         /**
-         * Can be of the same types as {@link AbstractTruffleString#data}, except {@link TaintedString}.
+         * Can be of the same types as {@link AbstractTruffleString#data},
+         * except {@link TaintedString} and {@link LazyConcat}.
          */
         private final Object data;
 

@@ -1064,7 +1064,32 @@ final class TStringInternalNodes {
 
         abstract TruffleString execute(AbstractTruffleString a, AbstractTruffleString b, int encoding, int concatLength, int concatStride, int concatCodeRange);
 
-        @Specialization
+        @Specialization(guards = {"!isTaintedNodeA.execute(a)", "!isTaintedNodeB.execute(b)"})
+        static TruffleString concatUntainted(AbstractTruffleString a, AbstractTruffleString b, int encoding, int concatLength, int concatStride, int concatCodeRange,
+                                             @Cached TruffleString.ToIndexableNode toIndexableNodeA,
+                                             @Cached TruffleString.ToIndexableNode toIndexableNodeB,
+                                             @Cached GetCodePointLengthNode getCodePointLengthANode,
+                                             @Cached GetCodePointLengthNode getCodePointLengthBNode,
+                                             @Cached ConcatMaterializeBytesNode materializeBytesNode,
+                                             @Cached CalcStringAttributesNode calculateAttributesNode,
+                                             @Cached ConditionProfile brokenProfile,
+                                             @Cached TSTaintNodes.IsTaintedNode isTaintedNodeA,
+                                             @Cached TSTaintNodes.IsTaintedNode isTaintedNodeB) {
+            final byte[] bytes = materializeBytesNode.execute(a, toIndexableNodeA.execute(a, a.data()), b, toIndexableNodeB.execute(b, b.data()), encoding, concatLength, concatStride);
+            final int codeRange;
+            final int codePointLength;
+            if (brokenProfile.profile(isBrokenMultiByte(concatCodeRange))) {
+                final long attrs = calculateAttributesNode.execute(null, bytes, 0, concatLength, concatStride, encoding, TSCodeRange.getUnknown());
+                codePointLength = StringAttributes.getCodePointLength(attrs);
+                codeRange = StringAttributes.getCodeRange(attrs);
+            } else {
+                codePointLength = getCodePointLengthANode.execute(a) + getCodePointLengthBNode.execute(b);
+                codeRange = concatCodeRange;
+            }
+            return TruffleString.createFromByteArray(bytes, concatLength, concatStride, encoding, codePointLength, codeRange);
+        }
+
+        @Specialization(replaces = "concatUntainted")
         static TruffleString concatTainted(AbstractTruffleString a, AbstractTruffleString b, int encoding, int concatLength, int concatStride, int concatCodeRange,
                                     @Cached TruffleString.ToIndexableNode toIndexableNodeA,
                                     @Cached TruffleString.ToIndexableNode toIndexableNodeB,

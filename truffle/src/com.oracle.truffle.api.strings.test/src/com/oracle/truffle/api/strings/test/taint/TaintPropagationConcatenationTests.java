@@ -170,7 +170,6 @@ public class TaintPropagationConcatenationTests {
 
         assertArrayEquals("Taint labels should be equal", expectedTaint, taint);
         assertTrue("TS should be tainted", isTainted(c));
-
     }
 
     @Test
@@ -199,7 +198,6 @@ public class TaintPropagationConcatenationTests {
         AbstractTruffleString b = concat(a, from(""), DEFAULT_ENCODING, false);
         assertTrue("TS should be tainted", isTainted(a));
         assertTrue("TS should be tainted", isTainted(b));
-
     }
 
     @Test
@@ -225,6 +223,15 @@ public class TaintPropagationConcatenationTests {
                 "fooooooooooooooooooooooooooooooooooooooooobaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaarbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaar",
                 b.toString()
         );
+    }
 
+    @Test
+    public void multiConcat() {
+        AbstractTruffleString ab = concat(from("a"), from("b"));
+        AbstractTruffleString abc = concat(ab, taint("c"));
+        AbstractTruffleString de = concat(from("d"), from("e"));
+
+        assertTrue("TS should be tainted", isTainted(abc));
+        assertFalse("TS should not be tainted", isTainted(de));
     }
 }
