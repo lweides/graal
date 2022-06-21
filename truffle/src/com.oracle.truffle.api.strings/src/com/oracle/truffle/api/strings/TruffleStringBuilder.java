@@ -1166,7 +1166,7 @@ public final class TruffleStringBuilder {
                                   @Cached ConditionProfile taintNull) {
             final int length = to - from;
             sb.ensureTaintCapacity(length, taintGrowProfile, taintNull);
-            final Object[] taint = ((AbstractTruffleString.TaintedString) a.data()).taint();
+            final Object[] taint = getTaintNode.execute(a);
             System.arraycopy(taint, from, sb.taint, sb.codePointLength, length);
         }
 

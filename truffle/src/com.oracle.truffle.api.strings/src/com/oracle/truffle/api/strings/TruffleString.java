@@ -2164,7 +2164,6 @@ public final class TruffleString extends AbstractTruffleString {
                         @Cached TStringInternalNodes.FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode) {
             NativePointer pointer = NativePointer.create(this, pointerObject, interopLibrary, byteOffset);
             if (copy) {
-                // TODO native taint tracking?
                 return fromBufferWithStringCompactionNode.execute(pointer, byteOffset, byteLength, enc.id, true, true, null);
             }
             return fromNativePointerNode.execute(pointer, byteOffset, byteLength, enc.id, true);

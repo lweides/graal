@@ -171,7 +171,7 @@ public class TSTaintNodes {
         public abstract Object[] execute(Object[] taint);
 
         @Specialization(guards = "!isArrayTaintedNode.execute(taint)")
-        static Object[] unTaintedCopy(Object[] taint,
+        static Object[] untaintedCopy(Object[] taint,
                                       @Cached IsArrayTaintedNode isArrayTaintedNode) {
             return null;
         }
