@@ -47,6 +47,7 @@ import static com.oracle.truffle.api.strings.TStringGuards.isUTF16;
 import static com.oracle.truffle.api.strings.TStringGuards.isUTF32;
 
 import com.oracle.truffle.api.CompilerDirectives;
+import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.profiles.ConditionProfile;
@@ -72,6 +73,7 @@ public abstract class AbstractTruffleString {
      * <li>{@link LazyConcat}</li>
      * <li>{@link NativePointer}</li>
      * <li>{@link String} (only for caching results of {@link #toJavaStringUncached()})</li>
+     * <li>{@link TaintedString} if the contained data is tainted</li>
      * </ul>
      */
     private Object data;
@@ -106,6 +108,7 @@ public abstract class AbstractTruffleString {
      */
     int hashCode = 0;
 
+
     AbstractTruffleString(Object data, int offset, int length, int stride, int encoding, int flags) {
         validateData(data, offset, length, stride);
         assert 0 <= encoding && encoding <= Byte.MAX_VALUE;
@@ -134,6 +137,8 @@ public abstract class AbstractTruffleString {
             validateDataLazy(offset, length, stride);
         } else if (data instanceof NativePointer) {
             validateDataNative(offset, length, stride);
+        } else if (data instanceof TaintedString) {
+            validateDataTainted(((TaintedString) data).data(), offset, length, stride);
         } else {
             CompilerDirectives.transferToInterpreterAndInvalidate();
             throw CompilerDirectives.shouldNotReachHere();
@@ -156,6 +161,21 @@ public abstract class AbstractTruffleString {
 
     private static void validateDataNative(int offset, int length, int stride) {
         if (!Stride.isStride(stride) || offset < 0 || length < 0 || (((long) length) << stride) > Integer.MAX_VALUE) {
+            CompilerDirectives.transferToInterpreterAndInvalidate();
+            throw CompilerDirectives.shouldNotReachHere();
+        }
+    }
+
+    private static void validateDataTainted(Object data, int offset, int length, int stride) {
+        if (data instanceof byte[]) {
+            validateDataArray(offset, length, stride, ((byte[]) data).length);
+        } else if (data instanceof String) {
+            validateDataArray(offset, length, stride, ((String) data).length() << TStringUnsafe.getJavaStringStride((String) data));
+        } else if (data instanceof LazyLong || data instanceof LazyConcat) {
+            validateDataLazy(offset, length, stride);
+        } else if (data instanceof NativePointer) {
+            validateDataNative(offset, length, stride);
+        } else {
             CompilerDirectives.transferToInterpreterAndInvalidate();
             throw CompilerDirectives.shouldNotReachHere();
         }
@@ -238,7 +258,7 @@ public abstract class AbstractTruffleString {
 
     /**
      * Get this string's backing data. This may be a byte array, a {@link String}, a
-     * {@link NativePointer}, a {@link LazyLong}, or a {@link LazyConcat}.
+     * {@link NativePointer}, a {@link LazyLong}, a {@link LazyConcat} or a {@link TaintedString}.
      */
     final Object data() {
         return data;
@@ -252,6 +272,14 @@ public abstract class AbstractTruffleString {
         this.data = array;
     }
 
+    final void setData(TaintedString data) {
+        if (offset() != 0 || length() << stride() != ((byte[]) data.data()).length) {
+            CompilerDirectives.transferToInterpreterAndInvalidate();
+            throw CompilerDirectives.shouldNotReachHere();
+        }
+        this.data = data;
+    }
+
     /**
      * Get this string's base offset in bytes. This property is used to accommodate string views /
      * lazy strings, and also allow "storage agnostic" access to the string's content. All methods
@@ -262,6 +290,9 @@ public abstract class AbstractTruffleString {
     }
 
     final int byteArrayOffset() {
+        final Object data = this.data instanceof TaintedString
+                ? ((TaintedString) this.data).data()
+                : this.data;
         assert data instanceof byte[] || data instanceof NativePointer || data instanceof LazyLong;
         assert !(data instanceof NativePointer) || offset() == ((NativePointer) data).offset();
         return data instanceof NativePointer ? 0 : offset();
@@ -316,11 +347,22 @@ public abstract class AbstractTruffleString {
 
     // don't use this on fast path
     final boolean isMaterialized() {
-        return data instanceof byte[] || isLazyLong() && ((AbstractTruffleString.LazyLong) data).bytes != null;
+        if (data instanceof byte[] || isLazyLong() && ((AbstractTruffleString.LazyLong) data).bytes != null) {
+            return true;
+        } else if (data instanceof TaintedString) {
+            final TaintedString tainted = (TaintedString) data;
+            final Object data = tainted.data();
+            return data instanceof byte[] || data instanceof LazyLong && ((AbstractTruffleString.LazyLong) data).bytes != null;
+        }
+        return false;
     }
 
     final boolean isLazyConcat() {
         return data instanceof AbstractTruffleString.LazyConcat;
+    }
+
+    final boolean isTaintedString() {
+        return data instanceof TaintedString;
     }
 
     final boolean isLazyLong() {
@@ -1144,11 +1186,44 @@ public abstract class AbstractTruffleString {
             this.right = right;
         }
 
+        TruffleString left() {
+            return left;
+        }
+
+        TruffleString right() {
+            return right;
+        }
+
         @TruffleBoundary
         static byte[] flatten(Node location, TruffleString a) {
             byte[] dst = new byte[a.length() << a.stride()];
             flatten(location, a, 0, a.length(), dst, 0, a.stride());
             return dst;
+        }
+
+        static Object[] flattenTaint(TruffleString a) {
+            final Object data = a.data();
+            if (data instanceof LazyConcat) {
+                LazyConcat lazy = (LazyConcat) data;
+                final Object[] taintLeft = flattenTaint(lazy.left);
+                final Object[] taintRight = flattenTaint(lazy.right);
+                if (taintLeft == null && taintRight == null) {
+                    return null;
+                }
+                final int lengthLeft = lazy.left.codePointLength();
+                final int lengthRight = lazy.right.codePointLength();
+                final Object[] taint = new Object[lengthLeft + lengthRight];
+                if (taintLeft != null) {
+                    System.arraycopy(taintLeft, 0, taint, 0, lengthLeft);
+                }
+                if (taintRight != null) {
+                    System.arraycopy(taintRight, 0, taint, lengthLeft, lengthRight);
+                }
+                return taint;
+            } else if (data instanceof TaintedString) {
+                return ((TaintedString) data).taint();
+            }
+            return null;
         }
 
         @TruffleBoundary
@@ -1283,6 +1358,38 @@ public abstract class AbstractTruffleString {
 
         void invalidateCachedByteArray() {
             byteArrayIsValid = false;
+        }
+    }
+
+    /**
+     * Tracks taint data of the underlying {@link AbstractTruffleString#data} field.
+     */
+    static final class TaintedString {
+
+        /**
+         * The taint of {@link TaintedString#data}.
+         */
+        @CompilationFinal(dimensions = 1)
+        private final Object[] taint;
+        /**
+         * Can be of the same types as {@link AbstractTruffleString#data},
+         * except {@link TaintedString} and {@link LazyConcat}.
+         */
+        private final Object data;
+
+        TaintedString(Object data, Object[] taint) {
+            assert !(data instanceof TaintedString) : "Nested tainted strings are forbidden";
+            assert !(data instanceof LazyConcat) : "LazyConcats have to be materialized";
+            this.data = data;
+            this.taint = taint;
+        }
+
+        Object data() {
+            return data;
+        }
+
+        Object[] taint() {
+            return taint;
         }
     }
 }

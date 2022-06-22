@@ -155,26 +155,42 @@ final class TStringInternalNodes {
 
         @Specialization(guards = {"encoding == cachedEncoding", "stride == cachedStride"}, limit = "6")
         static TruffleString doCached(AbstractTruffleString a, Object array, int offset, int length, @SuppressWarnings("unused") int stride, @SuppressWarnings("unused") int encoding, int codeRange,
-                        @Cached(value = "encoding") int cachedEncoding,
-                        @Cached(value = "stride") int cachedStride,
-                        @Cached CalcStringAttributesNode calcAttributesNode,
-                        @Cached RawArrayCopyBytesNode arrayCopyNode) {
-            return createString(a, array, offset, length, cachedStride, cachedEncoding, codeRange, calcAttributesNode, arrayCopyNode);
+                                      @Cached(value = "encoding") int cachedEncoding,
+                                      @Cached(value = "stride") int cachedStride,
+                                      @Cached CalcStringAttributesNode calcAttributesNode,
+                                      @Cached RawArrayCopyBytesNode arrayCopyNode,
+                                      @Cached TSTaintNodes.SubTaintArrayNode subTaintArrayNode,
+                                      @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                      @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                      @Cached ConditionProfile isStillTainted) {
+            return createString(a, array, offset, length, cachedStride, cachedEncoding, codeRange, calcAttributesNode, arrayCopyNode, subTaintArrayNode, getTaintNode, isArrayTaintedNode, isStillTainted);
         }
 
         @Specialization(replaces = "doCached")
         static TruffleString doUncached(AbstractTruffleString a, Object array, int offset, int length, int stride, int encoding, int codeRange,
-                        @Cached CalcStringAttributesNode calcAttributesNode,
-                        @Cached RawArrayCopyBytesNode arrayCopyNode) {
-            return createString(a, array, offset, length, stride, encoding, codeRange, calcAttributesNode, arrayCopyNode);
+                                        @Cached CalcStringAttributesNode calcAttributesNode,
+                                        @Cached RawArrayCopyBytesNode arrayCopyNode,
+                                        @Cached TSTaintNodes.SubTaintArrayNode subTaintArrayNode,
+                                        @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                        @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                        @Cached ConditionProfile isStillTainted) {
+            return createString(a, array, offset, length, stride, encoding, codeRange, calcAttributesNode, arrayCopyNode, subTaintArrayNode, getTaintNode, isArrayTaintedNode, isStillTainted);
         }
 
         private static TruffleString createString(AbstractTruffleString a, Object array, int offset, int length, int stride, int encoding, int codeRange,
-                        CalcStringAttributesNode calcAttributesNode, RawArrayCopyBytesNode arrayCopyNode) {
+                                                  CalcStringAttributesNode calcAttributesNode, RawArrayCopyBytesNode arrayCopyNode,
+                                                  TSTaintNodes.SubTaintArrayNode subTaintArrayNode, TSTaintNodes.GetTaintNode getTaintNode,
+                                                  TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode, ConditionProfile isStillTainted) {
             long attrs = calcAttributesNode.execute(a, array, offset, length, stride, encoding, codeRange);
             int newStride = Stride.fromCodeRange(StringAttributes.getCodeRange(attrs), encoding);
             byte[] newBytes = new byte[length << newStride];
             arrayCopyNode.execute(array, offset, stride, newBytes, 0, newStride, length);
+            final Object[] taint = subTaintArrayNode.execute(getTaintNode.execute(a), offset, offset + length);
+            if (isStillTainted.profile(isArrayTaintedNode.execute(taint))) {
+                return TruffleString.createTainted(
+                        newBytes, taint, 0, length, newStride, encoding, StringAttributes.getCodePointLength(attrs), StringAttributes.getCodeRange(attrs)
+                );
+            }
             return TruffleString.createFromByteArray(newBytes, length, newStride, encoding, StringAttributes.getCodePointLength(attrs), StringAttributes.getCodeRange(attrs));
         }
     }
@@ -183,10 +199,10 @@ final class TStringInternalNodes {
     @GenerateUncached
     abstract static class FromBufferWithStringCompactionNode extends Node {
 
-        abstract TruffleString execute(Object arrayA, int offsetA, int byteLength, int encoding, boolean copy, boolean isCacheHead);
+        abstract TruffleString execute(Object arrayA, int offsetA, int byteLength, int encoding, boolean copy, boolean isCacheHead, Object[] taint);
 
         @Specialization
-        TruffleString fromBufferWithStringCompaction(Object arrayA, int offsetA, int byteLength, int encoding, boolean copy, boolean isCacheHead,
+        TruffleString fromBufferWithStringCompaction(Object arrayA, int offsetA, int byteLength, int encoding, boolean copy, boolean isCacheHead, Object[] taint,
                         @Cached ConditionProfile asciiLatinBytesProfile,
                         @Cached ConditionProfile utf8Profile,
                         @Cached ConditionProfile utf16Profile,
@@ -195,7 +211,10 @@ final class TStringInternalNodes {
                         @Cached ConditionProfile utf32Compact0Profile,
                         @Cached ConditionProfile utf32Compact1Profile,
                         @Cached ConditionProfile exoticValidProfile,
-                        @Cached ConditionProfile exoticFixedWidthProfile) {
+                        @Cached ConditionProfile exoticFixedWidthProfile,
+                        @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode,
+                        @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                        @Cached ConditionProfile isArrayTainted) {
             CompilerAsserts.partialEvaluationConstant(copy);
             if (byteLength == 0) {
                 return TruffleString.Encoding.get(encoding).getEmpty();
@@ -272,6 +291,9 @@ final class TStringInternalNodes {
                     array = arrayA;
                 }
             }
+            if (isArrayTainted.profile(isArrayTaintedNode.execute(taint))) {
+                return TruffleString.createTainted(array, copyTaintArrayNode.execute(taint), offset, length, stride, encoding, codePointLength, codeRange, isCacheHead);
+            }
             return TruffleString.createFromArray(array, offset, length, stride, encoding, codePointLength, codeRange, isCacheHead);
         }
     }
@@ -280,15 +302,18 @@ final class TStringInternalNodes {
     @GenerateUncached
     abstract static class FromBufferWithStringCompactionKnownAttributesNode extends Node {
 
-        abstract TruffleString execute(Object arrayA, int offsetA, int byteLength, int encoding, int codePointLength, int codeRange);
+        abstract TruffleString execute(Object arrayA, int offsetA, int byteLength, int encoding, int codePointLength, int codeRange, Object[] taint);
 
         @Specialization
-        TruffleString fromBufferWithStringCompaction(Object arrayA, int offsetA, int byteLength, int encoding, int codePointLength, int codeRange,
+        TruffleString fromBufferWithStringCompaction(Object arrayA, int offsetA, int byteLength, int encoding, int codePointLength, int codeRange, Object[] taint,
                         @Cached ConditionProfile utf16Profile,
                         @Cached ConditionProfile utf16CompactProfile,
                         @Cached ConditionProfile utf32Profile,
                         @Cached ConditionProfile utf32Compact0Profile,
-                        @Cached ConditionProfile utf32Compact1Profile) {
+                        @Cached ConditionProfile utf32Compact1Profile,
+                        @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode,
+                        @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                        @Cached ConditionProfile isArrayTainted) {
             if (byteLength == 0) {
                 return TruffleString.Encoding.get(encoding).getEmpty();
             }
@@ -322,6 +347,9 @@ final class TStringInternalNodes {
                 length = byteLength;
                 stride = 0;
                 array = TStringOps.arraycopyOfWithStride(this, arrayA, offsetA, length, 0, length, 0);
+            }
+            if (isArrayTainted.profile(isArrayTaintedNode.execute(taint))) {
+                return TruffleString.createTainted(array, copyTaintArrayNode.execute(taint), offset, length, stride, encoding, codePointLength, codeRange, true);
             }
             return TruffleString.createFromArray(array, offset, length, stride, encoding, codePointLength, codeRange, true);
         }
@@ -971,7 +999,11 @@ final class TStringInternalNodes {
         TruffleString createLazySubstring(TruffleString a, Object arrayA, int codeRangeA, int fromIndex, int length, @SuppressWarnings("unused") boolean lazy,
                         @Cached CalcStringAttributesNode calcAttributesNode,
                         @Cached ConditionProfile stride1MustMaterializeProfile,
-                        @Cached ConditionProfile stride2MustMaterializeProfile) {
+                        @Cached ConditionProfile stride2MustMaterializeProfile,
+                        @Cached TSTaintNodes.SubTaintArrayNode subTaintArrayNode,
+                        @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                        @Cached TSTaintNodes.IsSubArrayTaintedNode isSubArrayTaintedNode,
+                        @Cached ConditionProfile isSubArrayTainted) {
             int lazyOffset = a.offset() + (fromIndex << a.stride());
             long attrs = calcAttributesNode.execute(a, arrayA, lazyOffset, length, a.stride(), a.encoding(), codeRangeA);
             int codeRange = StringAttributes.getCodeRange(attrs);
@@ -1017,7 +1049,12 @@ final class TStringInternalNodes {
                 offset = lazyOffset;
                 stride = a.stride();
             }
-            return TruffleString.createFromArray(array, offset, length, stride, a.encoding(), codePointLength, codeRange);
+            final boolean isSubstringTainted = isSubArrayTaintedNode.execute(getTaintNode.execute(a), offset, offset + length);
+            if (isSubArrayTainted.profile(isSubstringTainted)) {
+                final Object[] taint = subTaintArrayNode.execute(getTaintNode.execute(a), offset, offset + length);
+                return TruffleString.createTainted(array, taint, offset, length, stride, a.encoding(), codePointLength, codeRange, true);
+            }
+            return TruffleString.createFromArray(array, offset, length, stride, a.encoding(), codePointLength, codeRange, true);
         }
     }
 
@@ -1027,15 +1064,17 @@ final class TStringInternalNodes {
 
         abstract TruffleString execute(AbstractTruffleString a, AbstractTruffleString b, int encoding, int concatLength, int concatStride, int concatCodeRange);
 
-        @Specialization
-        static TruffleString concat(AbstractTruffleString a, AbstractTruffleString b, int encoding, int concatLength, int concatStride, int concatCodeRange,
-                        @Cached TruffleString.ToIndexableNode toIndexableNodeA,
-                        @Cached TruffleString.ToIndexableNode toIndexableNodeB,
-                        @Cached GetCodePointLengthNode getCodePointLengthANode,
-                        @Cached GetCodePointLengthNode getCodePointLengthBNode,
-                        @Cached ConcatMaterializeBytesNode materializeBytesNode,
-                        @Cached CalcStringAttributesNode calculateAttributesNode,
-                        @Cached ConditionProfile brokenProfile) {
+        @Specialization(guards = {"!isTaintedNodeA.execute(a)", "!isTaintedNodeB.execute(b)"})
+        static TruffleString concatUntainted(AbstractTruffleString a, AbstractTruffleString b, int encoding, int concatLength, int concatStride, int concatCodeRange,
+                                             @Cached TruffleString.ToIndexableNode toIndexableNodeA,
+                                             @Cached TruffleString.ToIndexableNode toIndexableNodeB,
+                                             @Cached GetCodePointLengthNode getCodePointLengthANode,
+                                             @Cached GetCodePointLengthNode getCodePointLengthBNode,
+                                             @Cached ConcatMaterializeBytesNode materializeBytesNode,
+                                             @Cached CalcStringAttributesNode calculateAttributesNode,
+                                             @Cached ConditionProfile brokenProfile,
+                                             @Cached TSTaintNodes.IsTaintedNode isTaintedNodeA,
+                                             @Cached TSTaintNodes.IsTaintedNode isTaintedNodeB) {
             final byte[] bytes = materializeBytesNode.execute(a, toIndexableNodeA.execute(a, a.data()), b, toIndexableNodeB.execute(b, b.data()), encoding, concatLength, concatStride);
             final int codeRange;
             final int codePointLength;
@@ -1046,6 +1085,36 @@ final class TStringInternalNodes {
             } else {
                 codePointLength = getCodePointLengthANode.execute(a) + getCodePointLengthBNode.execute(b);
                 codeRange = concatCodeRange;
+            }
+            return TruffleString.createFromByteArray(bytes, concatLength, concatStride, encoding, codePointLength, codeRange);
+        }
+
+        @Specialization(replaces = "concatUntainted")
+        static TruffleString concatTainted(AbstractTruffleString a, AbstractTruffleString b, int encoding, int concatLength, int concatStride, int concatCodeRange,
+                                    @Cached TruffleString.ToIndexableNode toIndexableNodeA,
+                                    @Cached TruffleString.ToIndexableNode toIndexableNodeB,
+                                    @Cached GetCodePointLengthNode getCodePointLengthANode,
+                                    @Cached GetCodePointLengthNode getCodePointLengthBNode,
+                                    @Cached ConcatMaterializeBytesNode materializeBytesNode,
+                                    @Cached CalcStringAttributesNode calculateAttributesNode,
+                                    @Cached ConditionProfile brokenProfile,
+                                    @Cached TSTaintNodes.ConcatTaintArrayNode concatTaintArrayNode,
+                                    @Cached TSTaintNodes.IsTaintedNode isTaintedNodeA,
+                                    @Cached TSTaintNodes.IsTaintedNode isTaintedNodeB,
+                                    @Cached ConditionProfile isArrayTainted) {
+            final byte[] bytes = materializeBytesNode.execute(a, toIndexableNodeA.execute(a, a.data()), b, toIndexableNodeB.execute(b, b.data()), encoding, concatLength, concatStride);
+            final int codeRange;
+            final int codePointLength;
+            if (brokenProfile.profile(isBrokenMultiByte(concatCodeRange))) {
+                final long attrs = calculateAttributesNode.execute(null, bytes, 0, concatLength, concatStride, encoding, TSCodeRange.getUnknown());
+                codePointLength = StringAttributes.getCodePointLength(attrs);
+                codeRange = StringAttributes.getCodeRange(attrs);
+            } else {
+                codePointLength = getCodePointLengthANode.execute(a) + getCodePointLengthBNode.execute(b);
+                codeRange = concatCodeRange;
+            }
+            if (isArrayTainted.profile(isTaintedNodeA.execute(a) || isTaintedNodeB.execute(b))) {
+                return TruffleString.createTainted(bytes, concatTaintArrayNode.execute(a, b), 0, concatLength, concatStride, encoding, codePointLength, codeRange);
             }
             return TruffleString.createFromByteArray(bytes, concatLength, concatStride, encoding, codePointLength, codeRange);
         }
@@ -1498,13 +1567,32 @@ final class TStringInternalNodes {
         }
     }
 
-    @ImportStatic(TStringGuards.class)
+    @ImportStatic({TStringGuards.class, TSTaintGuards.class})
     @GenerateUncached
     abstract static class CreateJavaStringNode extends Node {
 
         abstract String execute(AbstractTruffleString a, Object arrayA);
 
         @Specialization
+        String createJavaString(AbstractTruffleString a, AbstractTruffleString.TaintedString data,
+                                @Cached GetCodeRangeNode getCodeRangeNode,
+                                @Cached ConditionProfile reuseProfile,
+                                @Cached RawArrayCopyBytesNode arrayCopyBytesNode) {
+            assert isUTF16Compatible(a);
+            final int codeRange = getCodeRangeNode.execute(a);
+            final int stride = Stride.fromCodeRangeUTF16(codeRange);
+            final byte[] bytes;
+            if (reuseProfile.profile(a instanceof TruffleString && data.data() instanceof byte[] && a.length() << a.stride() == ((byte[]) data.data()).length && a.stride() == stride)) {
+                assert a.offset() == 0;
+                bytes = (byte[]) data.data();
+            } else {
+                bytes = new byte[a.length() << stride];
+                arrayCopyBytesNode.execute(data.data(), a.offset(), a.stride(), bytes, 0, stride, a.length());
+            }
+            return TStringUnsafe.createJavaString(bytes, stride);
+        }
+
+        @Specialization(guards = "!isPossiblyTainted(arrayA)")
         String createJavaString(AbstractTruffleString a, Object arrayA,
                         @Cached ConditionProfile reuseProfile,
                         @Cached GetCodeRangeNode getCodeRangeNode,
@@ -1537,15 +1625,25 @@ final class TStringInternalNodes {
 
         @Specialization
         TruffleString transcode(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, int targetEncoding,
-                        @Cached ConditionProfile asciiBytesInvalidProfile,
-                        @Cached TransCodeIntlNode transCodeIntlNode) {
+                                @Cached ConditionProfile asciiBytesInvalidProfile,
+                                @Cached TransCodeIntlNode transCodeIntlNode,
+                                @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode,
+                                @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                @Cached ConditionProfile isArrayTainted) {
             if (AbstractTruffleString.DEBUG_STRICT_ENCODING_CHECKS && a.isImmutable() && codeRangeA < TruffleString.Encoding.getMaxCompatibleCodeRange(targetEncoding)) {
+                final Object[] taint = copyTaintArrayNode.execute(getTaintNode.execute(a));
+                final boolean isTainted = isArrayTaintedNode.execute(taint);
                 if (a.stride() == 0) {
-                    return TruffleString.createFromArray(arrayA, a.offset(), a.length(), 0, targetEncoding, codePointLengthA, codeRangeA, false);
+                    return isArrayTainted.profile(isTainted)
+                            ? TruffleString.createTainted(arrayA, taint, a.offset(), a.length(), 0, targetEncoding, codePointLengthA, codeRangeA, false)
+                            : TruffleString.createFromArray(arrayA, a.offset(), a.length(), 0, targetEncoding, codePointLengthA, codeRangeA, false);
                 }
                 int targetStride = Stride.fromCodeRange(codeRangeA, targetEncoding);
                 Object array = TStringOps.arraycopyOfWithStride(this, arrayA, a.offset(), a.length(), a.stride(), a.length(), targetStride);
-                return TruffleString.createFromArray(array, 0, a.length(), targetStride, targetEncoding, codePointLengthA, codeRangeA, false);
+                return isArrayTainted.profile(isTainted)
+                        ? TruffleString.createTainted(array, taint, 0, a.length(), targetStride, targetEncoding, codePointLengthA, codeRangeA, false)
+                        : TruffleString.createFromArray(array, 0, a.length(), targetStride, targetEncoding, codePointLengthA, codeRangeA, false);
             }
             assert a.length() > 0;
             if (asciiBytesInvalidProfile.profile((isAscii(a) || isBytes(a)) && isSupportedEncoding(targetEncoding))) {
@@ -1556,14 +1654,14 @@ final class TStringInternalNodes {
                     buffer[i] = (byte) (c > 0x7f ? '?' : c);
                     TStringConstants.truffleSafePointPoll(this, i + 1);
                 }
-                return TransCodeIntlNode.create(a, buffer, buffer.length, 0, targetEncoding, codePointLengthA, TSCodeRange.get7Bit(), true);
+                return TransCodeIntlNode.create(a, buffer, buffer.length, 0, targetEncoding, codePointLengthA, TSCodeRange.get7Bit(), true, getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
             } else {
                 return transCodeIntlNode.execute(a, arrayA, codePointLengthA, codeRangeA, targetEncoding);
             }
         }
     }
 
-    @ImportStatic(TStringGuards.class)
+    @ImportStatic({TStringGuards.class})
     @GenerateUncached
     abstract static class TransCodeIntlNode extends Node {
 
@@ -1572,7 +1670,10 @@ final class TStringInternalNodes {
         @SuppressWarnings("unused")
         @Specialization(guards = {"isSupportedEncoding(a)", "isAscii(targetEncoding) || isBytes(targetEncoding)"})
         TruffleString targetAscii(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, int targetEncoding,
-                        @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode) {
+                                  @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode,
+                                  @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                  @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                  @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
             assert !is7Bit(codeRangeA);
             byte[] buffer = new byte[codePointLengthA];
             TruffleStringIterator it = AbstractTruffleString.forwardIterator(a, arrayA, codeRangeA);
@@ -1582,13 +1683,16 @@ final class TStringInternalNodes {
                 buffer[i++] = codepoint > 0x7f ? (byte) '?' : (byte) codepoint;
                 TStringConstants.truffleSafePointPoll(this, i);
             }
-            return create(a, buffer, buffer.length, 0, targetEncoding, codePointLengthA, TSCodeRange.get7Bit(), true);
+            return create(a, buffer, buffer.length, 0, targetEncoding, codePointLengthA, TSCodeRange.get7Bit(), true, getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
         @SuppressWarnings("unused")
         @Specialization(guards = {"isSupportedEncoding(a)", "isLatin1(targetEncoding)"})
         TruffleString latin1Transcode(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, int targetEncoding,
-                        @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode) {
+                                      @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode,
+                                      @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                      @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                      @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
             assert !is7Or8Bit(codeRangeA);
             byte[] buffer = new byte[codePointLengthA];
             TruffleStringIterator it = AbstractTruffleString.forwardIterator(a, arrayA, codeRangeA);
@@ -1603,26 +1707,35 @@ final class TStringInternalNodes {
                 }
                 TStringConstants.truffleSafePointPoll(this, i);
             }
-            return create(a, buffer, codePointLengthA, 0, Encodings.getLatin1(), codePointLengthA, codeRange, true);
+            return create(a, buffer, codePointLengthA, 0, Encodings.getLatin1(), codePointLengthA, codeRange, true, getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
         @Specialization(guards = {"isSupportedEncoding(a)", "!isLarge(codePointLengthA)", "isUTF8(targetEncoding)"})
         TruffleString utf8TranscodeRegular(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, @SuppressWarnings("unused") int targetEncoding,
-                        @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode) {
-            return utf8Transcode(a, arrayA, codePointLengthA, codeRangeA, iteratorNextNode, false);
+                                           @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode,
+                                           @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                           @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                           @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
+            return utf8Transcode(a, arrayA, codePointLengthA, codeRangeA, iteratorNextNode, false, getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
         @Specialization(guards = {"isSupportedEncoding(a)", "isLarge(codePointLengthA)", "isUTF8(targetEncoding)"})
         TruffleString utf8TranscodeLarge(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, @SuppressWarnings("unused") int targetEncoding,
-                        @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode) {
-            return utf8Transcode(a, arrayA, codePointLengthA, codeRangeA, iteratorNextNode, true);
+                                         @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode,
+                                         @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                         @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                         @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
+            return utf8Transcode(a, arrayA, codePointLengthA, codeRangeA, iteratorNextNode, true, getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
         static boolean isLarge(int codePointLengthA) {
             return codePointLengthA > TStringConstants.MAX_ARRAY_SIZE / 4;
         }
 
-        private TruffleString utf8Transcode(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, TruffleStringIterator.NextNode iteratorNextNode, boolean isLarge) {
+        private TruffleString utf8Transcode(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, TruffleStringIterator.NextNode iteratorNextNode, boolean isLarge,
+                                            TSTaintNodes.GetTaintNode getTaintNode,
+                                            TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                            TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
             assert !is7Bit(codeRangeA);
             TruffleStringIterator it = AbstractTruffleString.forwardIterator(a, arrayA, codeRangeA);
             byte[] buffer = new byte[isLarge ? TStringConstants.MAX_ARRAY_SIZE : codePointLengthA * 4];
@@ -1652,11 +1765,14 @@ final class TStringInternalNodes {
             } else {
                 codePointLength = codePointLengthA;
             }
-            return create(a, Arrays.copyOf(buffer, length), length, 0, Encodings.getUTF8(), codePointLength, codeRange, isBrokenMultiByte(codeRange));
+            return create(a, Arrays.copyOf(buffer, length), length, 0, Encodings.getUTF8(), codePointLength, codeRange, isBrokenMultiByte(codeRange), getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
         @Specialization(guards = {"isUTF32(a)", "isUTF16(targetEncoding)"})
-        TruffleString utf16Fixed32Bit(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, @SuppressWarnings("unused") int targetEncoding) {
+        TruffleString utf16Fixed32Bit(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, @SuppressWarnings("unused") int targetEncoding,
+                                      @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                      @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                      @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
             assert TStringGuards.isValidFixedWidth(codeRangeA) || TStringGuards.isBrokenFixedWidth(codeRangeA);
             assert isStride2(a);
             byte[] buffer = new byte[codePointLengthA * 4];
@@ -1675,22 +1791,31 @@ final class TStringInternalNodes {
             } else {
                 codePointLength = codePointLengthA;
             }
-            return create(a, Arrays.copyOf(buffer, length * 2), length, 1, Encodings.getUTF16(), codePointLength, codeRange, isBrokenMultiByte(codeRange));
+            return create(a, Arrays.copyOf(buffer, length * 2), length, 1, Encodings.getUTF16(), codePointLength, codeRange, isBrokenMultiByte(codeRange), getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
         @Specialization(guards = {"isSupportedEncoding(a)", "!isFixedWidth(codeRangeA)", "!isLarge(codePointLengthA)", "isUTF16(targetEncoding)"})
         TruffleString utf16TranscodeRegular(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, @SuppressWarnings("unused") int targetEncoding,
-                        @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode) {
-            return utf16Transcode(a, arrayA, codePointLengthA, codeRangeA, iteratorNextNode, false);
+                                            @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode,
+                                            @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                            @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                            @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
+            return utf16Transcode(a, arrayA, codePointLengthA, codeRangeA, iteratorNextNode, false, getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
         @Specialization(guards = {"isSupportedEncoding(a)", "!isFixedWidth(codeRangeA)", "isLarge(codePointLengthA)", "isUTF16(targetEncoding)"})
         TruffleString utf16TranscodeLarge(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, @SuppressWarnings("unused") int targetEncoding,
-                        @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode) {
-            return utf16Transcode(a, arrayA, codePointLengthA, codeRangeA, iteratorNextNode, true);
+                                          @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode,
+                                          @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                          @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                          @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
+            return utf16Transcode(a, arrayA, codePointLengthA, codeRangeA, iteratorNextNode, true, getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
-        private TruffleString utf16Transcode(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, TruffleStringIterator.NextNode iteratorNextNode, boolean isLarge) {
+        private TruffleString utf16Transcode(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, TruffleStringIterator.NextNode iteratorNextNode, boolean isLarge,
+                                             TSTaintNodes.GetTaintNode getTaintNode,
+                                             TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                             TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
             assert TStringGuards.isValidBrokenOrUnknownMultiByte(codeRangeA);
             TruffleStringIterator it = AbstractTruffleString.forwardIterator(a, arrayA, codeRangeA);
             byte[] buffer = new byte[codePointLengthA];
@@ -1714,7 +1839,7 @@ final class TStringInternalNodes {
             }
             if (!it.hasNext()) {
                 assert length == codePointLengthA;
-                return create(a, buffer, length, 0, Encodings.getUTF16(), codePointLengthA, codeRange, false);
+                return create(a, buffer, length, 0, Encodings.getUTF16(), codePointLengthA, codeRange, false, getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
             }
             while (it.hasNext()) {
                 int curIndex = it.getRawIndex();
@@ -1738,7 +1863,7 @@ final class TStringInternalNodes {
                     codePointLength = StringAttributes.getCodePointLength(attrs);
                     codeRange = StringAttributes.getCodeRange(attrs);
                 }
-                return create(a, buffer, length, 1, Encodings.getUTF16(), codePointLength, codeRange, isBrokenMultiByte(codeRange));
+                return create(a, buffer, length, 1, Encodings.getUTF16(), codePointLength, codeRange, isBrokenMultiByte(codeRange), getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
             }
             int loopCount = 0;
             while (it.hasNext()) {
@@ -1757,13 +1882,16 @@ final class TStringInternalNodes {
                 codePointLength = StringAttributes.getCodePointLength(attrs);
                 codeRange = StringAttributes.getCodeRange(attrs);
             }
-            return create(a, Arrays.copyOf(buffer, length * 2), length, 1, Encodings.getUTF16(), codePointLength, codeRange, isBrokenMultiByte(codeRange));
+            return create(a, Arrays.copyOf(buffer, length * 2), length, 1, Encodings.getUTF16(), codePointLength, codeRange, isBrokenMultiByte(codeRange), getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
         @Specialization(guards = {"!isUTF16(a)", "isSupportedEncoding(a)", "!isFixedWidth(codeRangeA)", "!isLarge(codePointLengthA)", "isUTF32(targetEncoding)"})
         TruffleString utf32TranscodeRegular(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, @SuppressWarnings("unused") int targetEncoding,
-                        @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode) {
-            return utf32Transcode(a, arrayA, codePointLengthA, codeRangeA, iteratorNextNode);
+                                            @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode,
+                                            @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                            @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                            @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
+            return utf32Transcode(a, arrayA, codePointLengthA, codeRangeA, iteratorNextNode, getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
         @SuppressWarnings("unused")
@@ -1774,7 +1902,10 @@ final class TStringInternalNodes {
 
         @Specialization(guards = {"isUTF16(a)", "!isFixedWidth(codeRangeA)", "!isLarge(codePointLengthA)", "isUTF32(targetEncoding)"})
         TruffleString utf32TranscodeUTF16(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, @SuppressWarnings("unused") int targetEncoding,
-                        @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode) {
+                                          @Cached @Shared("iteratorNextNode") TruffleStringIterator.NextNode iteratorNextNode,
+                                          @Cached TSTaintNodes.GetTaintNode getTaintNode,
+                                          @Cached TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                          @Cached TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
             assert containsSurrogates(a);
             TruffleStringIterator it = AbstractTruffleString.forwardIterator(a, arrayA, codeRangeA);
             byte[] buffer = new byte[codePointLengthA << 2];
@@ -1785,10 +1916,13 @@ final class TStringInternalNodes {
             }
             assert length == codePointLengthA;
             boolean isBroken = isBrokenMultiByte(codeRangeA);
-            return create(a, buffer, length, 2, Encodings.getUTF32(), codePointLengthA, isBroken ? TSCodeRange.getBrokenFixedWidth() : TSCodeRange.getValidFixedWidth(), isBroken);
+            return create(a, buffer, length, 2, Encodings.getUTF32(), codePointLengthA, isBroken ? TSCodeRange.getBrokenFixedWidth() : TSCodeRange.getValidFixedWidth(), isBroken, getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
-        private TruffleString utf32Transcode(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, TruffleStringIterator.NextNode iteratorNextNode) {
+        private TruffleString utf32Transcode(AbstractTruffleString a, Object arrayA, int codePointLengthA, int codeRangeA, TruffleStringIterator.NextNode iteratorNextNode,
+                                             TSTaintNodes.GetTaintNode getTaintNode,
+                                             TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                             TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
             assert TStringGuards.isValidBrokenOrUnknownMultiByte(codeRangeA);
             TruffleStringIterator it = AbstractTruffleString.forwardIterator(a, arrayA, codeRangeA);
             byte[] buffer = new byte[codePointLengthA];
@@ -1817,7 +1951,7 @@ final class TStringInternalNodes {
             }
             if (!it.hasNext()) {
                 assert length == codePointLengthA;
-                return create(a, buffer, length, 0, Encodings.getUTF32(), codePointLengthA, codeRange, isBrokenFixedWidth(codeRange));
+                return create(a, buffer, length, 0, Encodings.getUTF32(), codePointLengthA, codeRange, isBrokenFixedWidth(codeRange), getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
             }
             if (is16Bit(codeRange)) {
                 while (it.hasNext()) {
@@ -1835,7 +1969,7 @@ final class TStringInternalNodes {
             }
             if (!it.hasNext()) {
                 assert length == codePointLengthA;
-                return create(a, buffer, length, 1, Encodings.getUTF32(), codePointLengthA, codeRange, isBrokenFixedWidth(codeRange));
+                return create(a, buffer, length, 1, Encodings.getUTF32(), codePointLengthA, codeRange, isBrokenFixedWidth(codeRange), getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
             }
             while (it.hasNext()) {
                 codepoint = iteratorNextNode.execute(it);
@@ -1845,18 +1979,28 @@ final class TStringInternalNodes {
                 writeToByteArray(buffer, 2, length++, codepoint);
                 TStringConstants.truffleSafePointPoll(this, length);
             }
-            return create(a, buffer, length, 2, Encodings.getUTF32(), codePointLengthA, codeRange, isBrokenFixedWidth(codeRange));
+            return create(a, buffer, length, 2, Encodings.getUTF32(), codePointLengthA, codeRange, isBrokenFixedWidth(codeRange), getTaintNode, isArrayTaintedNode, copyTaintArrayNode);
         }
 
         @Specialization(guards = {"isUnsupportedEncoding(a) || isUnsupportedEncoding(targetEncoding)"})
         TruffleString unsupported(AbstractTruffleString a, Object arrayA, int codePointLengthA, @SuppressWarnings("unused") int codeRangeA, int targetEncoding,
-                        @Cached ConditionProfile outOfMemoryProfile,
-                        @Cached ConditionProfile nativeProfile,
-                        @Cached FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode) {
-            return JCodings.getInstance().transcode(this, a, arrayA, codePointLengthA, targetEncoding, outOfMemoryProfile, nativeProfile, fromBufferWithStringCompactionNode);
+                                  @Cached ConditionProfile outOfMemoryProfile,
+                                  @Cached ConditionProfile nativeProfile,
+                                  @Cached FromBufferWithStringCompactionNode fromBufferWithStringCompactionNode,
+                                  @Cached TSTaintNodes.GetTaintNode getTaintNode) {
+            return JCodings.getInstance().transcode(this, a, arrayA, codePointLengthA, targetEncoding, outOfMemoryProfile, nativeProfile, fromBufferWithStringCompactionNode, getTaintNode);
         }
 
-        private static TruffleString create(AbstractTruffleString a, byte[] buffer, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead) {
+        private static TruffleString create(AbstractTruffleString a, byte[] buffer, int length, int stride, int encoding, int codePointLength, int codeRange, boolean isCacheHead,
+                                            TSTaintNodes.GetTaintNode getTaintNode,
+                                            TSTaintNodes.IsArrayTaintedNode isArrayTaintedNode,
+                                            TSTaintNodes.CopyTaintArrayNode copyTaintArrayNode) {
+            final Object[] originalTaint = getTaintNode.execute(a);
+            final boolean isTainted = isArrayTaintedNode.execute(originalTaint);
+            if (isTainted) {
+                final Object[] taint = copyTaintArrayNode.execute(originalTaint);
+                return TruffleString.createTainted(buffer, taint, 0, length, stride, encoding, codePointLength, codeRange, isCacheHead || a.isMutable());
+            }
             return TruffleString.createFromByteArray(buffer, length, stride, encoding, codePointLength, codeRange, isCacheHead || a.isMutable());
         }
 
